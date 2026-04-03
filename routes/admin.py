@@ -233,55 +233,68 @@ def api_import_members_csv(event_id):
     else:
         return jsonify({'error': 'ファイルのエンコーディングを認識できません。UTF-8またはShift_JISで保存してください。'}), 400
 
-    # ヘッダーキーワード定義（各フィールドを認識するキーワード）
-    NAME_KEYS  = {'名前', '氏名', '名称', 'name', 'fullname', '姓名'}
+    NAME_KEYS  = {'名前', '氏名', '名称', 'name', 'fullname', '姓名', '氏　名'}
     EMAIL_KEYS = {'メール', 'メールアドレス', 'mail', 'email', 'gmail', 'アドレス'}
     GRADE_KEYS = {'学年', '年次', '年齢', 'grade', 'year', '学年・年次'}
     DEPT_KEYS  = {'局', 'グループ', '部', '部署', '班', 'department', 'dept', 'group', '局・グループ', '所属'}
+    ALL_KEYS   = NAME_KEYS | EMAIL_KEYS | GRADE_KEYS | DEPT_KEYS
 
-    def detect_col(headers, keywords):
-        """ヘッダー行からキーワードに一致する列インデックスを返す（なければ None）"""
-        for i, h in enumerate(headers):
+    def detect_col(header_row, keywords):
+        for i, h in enumerate(header_row):
             if h.strip().lower() in {k.lower() for k in keywords}:
                 return i
         return None
 
     def normalize_grade(val):
-        """'2' → '2年'、'2年' → '2年' のように正規化"""
         v = val.strip()
-        if v and v.isdigit():
-            return v + '年'
-        return v
+        return (v + '年') if (v and v.isdigit()) else v
 
     reader = csv.reader(io.StringIO(text))
-    rows = list(reader)
+    all_rows = list(reader)
     added = 0
     skipped = 0
     errors = []
 
-    if not rows:
+    if not all_rows:
         return jsonify({'ok': True, 'added': 0, 'skipped': 0, 'errors': []})
 
-    # ─ ヘッダー行の検出 ─
-    first = [c.strip().lower() for c in rows[0]]
-    has_header = any(k.lower() in first for keys in (NAME_KEYS, EMAIL_KEYS, GRADE_KEYS, DEPT_KEYS) for k in keys)
+    # ── ① 空行を除外しつつ元インデックスを保持 ──
+    non_empty = [(i, row) for i, row in enumerate(all_rows)
+                 if any(cell.strip() for cell in row)]
 
-    if has_header:
-        headers = [c.strip() for c in rows[0]]
-        col_name  = detect_col(headers, NAME_KEYS)
-        col_email = detect_col(headers, EMAIL_KEYS)
-        col_grade = detect_col(headers, GRADE_KEYS)
-        col_dept  = detect_col(headers, DEPT_KEYS)
-        data_rows = rows[1:]
+    if not non_empty:
+        return jsonify({'ok': True, 'added': 0, 'skipped': 0, 'errors': []})
+
+    # ── ② 全行を走査してヘッダー行を探す ──
+    header_orig_idx = None
+    header_row = None
+    for orig_i, row in non_empty:
+        cells_lower = {c.strip().lower() for c in row}
+        if cells_lower & {k.lower() for k in ALL_KEYS}:
+            header_orig_idx = orig_i
+            header_row = row
+            break
+
+    if header_row is not None:
+        col_name  = detect_col(header_row, NAME_KEYS)
+        col_email = detect_col(header_row, EMAIL_KEYS)
+        col_grade = detect_col(header_row, GRADE_KEYS)
+        col_dept  = detect_col(header_row, DEPT_KEYS)
+        data_rows = [row for orig_i, row in non_empty if orig_i > header_orig_idx]
     else:
-        # ヘッダーなし → 固定順（名前, メール, 学年, 局）
-        col_name, col_email, col_grade, col_dept = 0, 1, 2, 3
-        data_rows = rows
+        # ヘッダーなし → 最初の非空行の最初の非空セルを起点に固定順
+        first_row = non_empty[0][1]
+        start = next((i for i, c in enumerate(first_row) if c.strip()), 0)
+        col_name  = start
+        col_email = start + 1
+        col_grade = start + 2
+        col_dept  = start + 3
+        data_rows = [row for _, row in non_empty]
 
     if col_name is None:
         return jsonify({'error': '「名前」列が見つかりません。ヘッダー行を確認してください。'}), 400
 
-    for i, row in enumerate(data_rows, start=2 if has_header else 1):
+    for row in data_rows:
         def get(col):
             return row[col].strip() if col is not None and col < len(row) else ''
 
@@ -290,12 +303,11 @@ def api_import_members_csv(event_id):
             skipped += 1
             continue
 
-        grade_raw = get(col_grade)
         member = EventMember(
             event_id=event_id,
             name=name,
             email=get(col_email).lower() or None,
-            grade=normalize_grade(grade_raw) or None,
+            grade=normalize_grade(get(col_grade)) or None,
             department=get(col_dept) or None,
         )
         db.session.add(member)

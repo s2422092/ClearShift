@@ -49,7 +49,6 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 
     if (tabId === 'members') loadMembers();
     if (tabId === 'shift') loadShifts();
-    if (tabId === 'fairness') loadFairness();
   });
 });
 
@@ -425,56 +424,6 @@ $('btn-do-autogen').addEventListener('click', async () => {
   } catch (err) { showToast(err.message, true); }
 });
 
-// ─── Fairness ─────────────────────────────────────────────────────────────────
-async function loadFairness() {
-  const content = $('fairness-content');
-  try {
-    const stats = await apiFetch(`/api/events/${EVENT_ID}/stats`);
-    const maxCount = Math.max(...stats.member_stats.map(m => m.shift_count), 1);
-
-    content.innerHTML = stats.member_stats.length
-      ? stats.member_stats.map(m => `
-        <div class="bg-white rounded-xl border border-gray-100 px-4 py-3">
-          <div class="flex items-center gap-3 mb-2">
-            <div class="w-7 h-7 rounded-full bg-primary-light flex items-center justify-center flex-shrink-0">
-              <span class="text-xs font-bold text-primary">${m.name[0]}</span>
-            </div>
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center justify-between">
-                <span class="text-sm font-medium text-gray-900">${m.name}</span>
-                <span class="text-sm font-bold text-primary">${m.shift_count}回</span>
-              </div>
-              ${m.department ? `<div class="text-xs text-gray-400">${m.department}${m.grade ? ' · ' + m.grade : ''}</div>` : ''}
-            </div>
-          </div>
-          <div class="fairness-bar">
-            <div class="fairness-bar-fill" style="width: ${(m.shift_count / maxCount * 100).toFixed(1)}%"></div>
-          </div>
-          ${!m.submitted_availability ? '<div class="text-xs text-amber-500 mt-1">希望未提出</div>' : ''}
-        </div>
-      `).join('')
-      : '<div class="text-center py-10 text-gray-400 text-sm">メンバーを追加してください。</div>';
-
-    // 未提出セクション
-    const unsubmitted = stats.unsubmitted || [];
-    const sect = $('unsubmitted-section');
-    if (unsubmitted.length) {
-      sect.classList.remove('hidden');
-      $('unsubmitted-list').innerHTML = unsubmitted.map(m => `
-        <div class="flex items-center gap-2 px-3 py-2 bg-amber-50 rounded-lg text-sm text-amber-700">
-          <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-          </svg>
-          ${m.name}
-        </div>
-      `).join('');
-    } else {
-      sect.classList.add('hidden');
-    }
-  } catch (err) {
-    content.innerHTML = `<div class="text-center py-10 text-red-400 text-sm">${err.message}</div>`;
-  }
-}
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 // ─── Share Link ───────────────────────────────────────────────────────────────
