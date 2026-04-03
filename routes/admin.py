@@ -1,24 +1,59 @@
 from flask import Blueprint, render_template, redirect, url_for, request, jsonify, session
 from flask_login import login_required, current_user
-from models import db, Event, EventMember, ShiftSlot, ShiftAssignment, Availability
+from models import db, Event, EventMember, ShiftSlot, ShiftAssignment, Availability, EventCollaborator
 from datetime import date, datetime, timedelta
+import csv
+import io
 
 admin_bp = Blueprint('admin', __name__)
+
+
+def _user_events():
+    """ログインユーザーが作成 or 参加しているイベント一覧を返す"""
+    own = Event.query.filter_by(creator_id=current_user.id)
+    collab_ids = [c.event_id for c in EventCollaborator.query.filter_by(user_id=current_user.id).all()]
+    shared = Event.query.filter(Event.id.in_(collab_ids)) if collab_ids else Event.query.filter(False)
+    return own.union(shared).order_by(Event.created_at.desc()).all()
+
+
+def _can_access_event(event_id):
+    """ユーザーがそのイベントを編集できるか確認"""
+    event = Event.query.get_or_404(event_id)
+    if event.creator_id == current_user.id:
+        return event
+    if EventCollaborator.query.filter_by(event_id=event_id, user_id=current_user.id).first():
+        return event
+    from flask import abort
+    abort(403)
 
 
 @admin_bp.route('/dashboard')
 @login_required
 def dashboard():
-    events = Event.query.filter_by(creator_id=current_user.id).order_by(Event.created_at.desc()).all()
+    events = _user_events()
     return render_template('admin/dashboard.html', events=events)
 
 
 @admin_bp.route('/events/<int:event_id>')
 @login_required
 def event_detail(event_id):
-    event = Event.query.filter_by(id=event_id, creator_id=current_user.id).first_or_404()
-    events = Event.query.filter_by(creator_id=current_user.id).order_by(Event.created_at.desc()).all()
-    return render_template('admin/event_detail.html', event=event, events=events)
+    event = _can_access_event(event_id)
+    events = _user_events()
+    is_owner = event.creator_id == current_user.id
+    return render_template('admin/event_detail.html', event=event, events=events, is_owner=is_owner)
+
+
+@admin_bp.route('/join/<token>')
+@login_required
+def join_event(token):
+    event = Event.query.filter_by(share_token=token).first_or_404()
+    if event.creator_id == current_user.id:
+        return redirect(url_for('admin.event_detail', event_id=event.id))
+    existing = EventCollaborator.query.filter_by(event_id=event.id, user_id=current_user.id).first()
+    if not existing:
+        db.session.add(EventCollaborator(event_id=event.id, user_id=current_user.id))
+        db.session.commit()
+    return redirect(url_for('admin.event_detail', event_id=event.id))
 
 
 # ── API: Events ──────────────────────────────────────────────────────────────
@@ -26,7 +61,7 @@ def event_detail(event_id):
 @admin_bp.route('/api/events', methods=['GET'])
 @login_required
 def api_events():
-    events = Event.query.filter_by(creator_id=current_user.id).order_by(Event.created_at.desc()).all()
+    events = _user_events()
     return jsonify([e.to_dict() for e in events])
 
 
@@ -62,10 +97,28 @@ def api_create_event():
     return jsonify(event.to_dict()), 201
 
 
+@admin_bp.route('/api/events/<int:event_id>/share-token', methods=['POST'])
+@login_required
+def api_share_token(event_id):
+    event = Event.query.filter_by(id=event_id, creator_id=current_user.id).first_or_404()
+    event.generate_share_token()
+    db.session.commit()
+    return jsonify({'share_token': event.share_token})
+
+
+@admin_bp.route('/api/events/<int:event_id>/share-token', methods=['DELETE'])
+@login_required
+def api_revoke_share_token(event_id):
+    event = Event.query.filter_by(id=event_id, creator_id=current_user.id).first_or_404()
+    event.share_token = None
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
 @admin_bp.route('/api/events/<int:event_id>', methods=['PATCH'])
 @login_required
 def api_update_event(event_id):
-    event = Event.query.filter_by(id=event_id, creator_id=current_user.id).first_or_404()
+    event = _can_access_event(event_id)
     data = request.get_json()
     if 'title' in data:
         event.title = data['title'].strip()
@@ -82,7 +135,7 @@ def api_update_event(event_id):
 @admin_bp.route('/api/events/<int:event_id>', methods=['DELETE'])
 @login_required
 def api_delete_event(event_id):
-    event = Event.query.filter_by(id=event_id, creator_id=current_user.id).first_or_404()
+    event = Event.query.filter_by(id=event_id, creator_id=current_user.id).first_or_404()  # オーナーのみ削除可
     db.session.delete(event)
     db.session.commit()
     return jsonify({'ok': True})
@@ -93,7 +146,7 @@ def api_delete_event(event_id):
 @admin_bp.route('/api/events/<int:event_id>/members', methods=['GET'])
 @login_required
 def api_members(event_id):
-    Event.query.filter_by(id=event_id, creator_id=current_user.id).first_or_404()
+    _can_access_event(event_id)
     members = EventMember.query.filter_by(event_id=event_id).order_by(EventMember.name).all()
     return jsonify([m.to_dict() for m in members])
 
@@ -101,7 +154,7 @@ def api_members(event_id):
 @admin_bp.route('/api/events/<int:event_id>/members', methods=['POST'])
 @login_required
 def api_add_member(event_id):
-    Event.query.filter_by(id=event_id, creator_id=current_user.id).first_or_404()
+    _can_access_event(event_id)
     data = request.get_json()
     name = (data.get('name') or '').strip()
     if not name:
@@ -117,6 +170,65 @@ def api_add_member(event_id):
     db.session.add(member)
     db.session.commit()
     return jsonify(member.to_dict()), 201
+
+
+@admin_bp.route('/api/events/<int:event_id>/members/csv', methods=['POST'])
+@login_required
+def api_import_members_csv(event_id):
+    _can_access_event(event_id)
+
+    if 'file' not in request.files:
+        return jsonify({'error': 'ファイルが選択されていません。'}), 400
+
+    f = request.files['file']
+    if not f.filename or not f.filename.lower().endswith('.csv'):
+        return jsonify({'error': 'CSVファイルを選択してください。'}), 400
+
+    # BOM付きUTF-8とShift_JISに対応
+    raw = f.read()
+    for encoding in ('utf-8-sig', 'utf-8', 'shift_jis', 'cp932'):
+        try:
+            text = raw.decode(encoding)
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        return jsonify({'error': 'ファイルのエンコーディングを認識できません。UTF-8またはShift_JISで保存してください。'}), 400
+
+    reader = csv.reader(io.StringIO(text))
+    added = 0
+    skipped = 0
+    errors = []
+
+    for i, row in enumerate(reader, start=1):
+        # ヘッダー行をスキップ（1行目が「名前」「氏名」「name」で始まる場合）
+        if i == 1 and row and row[0].strip().lower() in ('名前', '氏名', 'name'):
+            continue
+        if not row or not row[0].strip():
+            continue
+
+        name = row[0].strip()
+        email = row[1].strip().lower() if len(row) > 1 else ''
+        grade = row[2].strip() if len(row) > 2 else ''
+        department = row[3].strip() if len(row) > 3 else ''
+
+        if not name:
+            errors.append(f'{i}行目: 名前が空です')
+            skipped += 1
+            continue
+
+        member = EventMember(
+            event_id=event_id,
+            name=name,
+            email=email or None,
+            grade=grade or None,
+            department=department or None,
+        )
+        db.session.add(member)
+        added += 1
+
+    db.session.commit()
+    return jsonify({'ok': True, 'added': added, 'skipped': skipped, 'errors': errors})
 
 
 @admin_bp.route('/api/events/<int:event_id>/members/<int:member_id>', methods=['DELETE'])

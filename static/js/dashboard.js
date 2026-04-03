@@ -506,5 +506,91 @@ $('btn-copy-url').addEventListener('click', () => {
   navigator.clipboard.writeText(url).then(() => showToast('URLをコピーしました'));
 });
 
+// ─── CSV Import ───────────────────────────────────────────────────────────────
+const modalCsv = $('modal-csv');
+$('btn-import-csv').addEventListener('click', () => {
+  $('csv-error').classList.add('hidden');
+  $('csv-result').classList.add('hidden');
+  $('form-csv').reset();
+  $('csv-file-label').textContent = 'クリックまたはドラッグ&ドロップ';
+  modalCsv.classList.remove('hidden');
+});
+document.querySelectorAll('.csv-modal-close').forEach(b =>
+  b.addEventListener('click', () => modalCsv.classList.add('hidden'))
+);
+
+// ファイル選択エリアのクリック
+$('csv-drop-area').addEventListener('click', () => $('csv-file').click());
+
+// ファイル名表示
+$('csv-file').addEventListener('change', e => {
+  const file = e.target.files[0];
+  $('csv-file-label').textContent = file ? file.name : 'クリックまたはドラッグ&ドロップ';
+});
+
+// ドラッグ&ドロップ
+const dropArea = $('csv-drop-area');
+dropArea.addEventListener('dragover', e => { e.preventDefault(); dropArea.classList.add('border-primary', 'bg-primary-light'); });
+dropArea.addEventListener('dragleave', () => dropArea.classList.remove('border-primary', 'bg-primary-light'));
+dropArea.addEventListener('drop', e => {
+  e.preventDefault();
+  dropArea.classList.remove('border-primary', 'bg-primary-light');
+  const file = e.dataTransfer.files[0];
+  if (file) {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    $('csv-file').files = dt.files;
+    $('csv-file-label').textContent = file.name;
+  }
+});
+
+$('form-csv').addEventListener('submit', async e => {
+  e.preventDefault();
+  const errEl = $('csv-error');
+  const resultEl = $('csv-result');
+  errEl.classList.add('hidden');
+  resultEl.classList.add('hidden');
+
+  const file = $('csv-file').files[0];
+  if (!file) {
+    errEl.textContent = 'CSVファイルを選択してください。';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  const submitBtn = $('btn-csv-submit');
+  submitBtn.disabled = true;
+  submitBtn.textContent = '読み込み中...';
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const res = await fetch(`/api/events/${EVENT_ID}/members/csv`, {
+      method: 'POST',
+      body: formData,
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error || 'エラーが発生しました。';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    resultEl.innerHTML = `
+      <p class="text-green-700 font-medium">${data.added}人を追加しました。</p>
+      ${data.skipped ? `<p class="text-gray-500">スキップ: ${data.skipped}行</p>` : ''}
+      ${data.errors.length ? `<p class="text-amber-600">${data.errors.join('<br/>')}</p>` : ''}
+    `;
+    resultEl.classList.remove('hidden');
+    loadMembers();
+  } catch (err) {
+    errEl.textContent = 'ネットワークエラーが発生しました。';
+    errEl.classList.remove('hidden');
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'インポート';
+  }
+});
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 loadShifts();

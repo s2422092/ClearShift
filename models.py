@@ -2,6 +2,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
+import secrets
 
 db = SQLAlchemy()
 
@@ -38,8 +39,14 @@ class Event(db.Model):
     creator_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    share_token = db.Column(db.String(64), unique=True, nullable=True)
+
     members = db.relationship('EventMember', backref='event', lazy=True, cascade='all, delete-orphan')
     slots = db.relationship('ShiftSlot', backref='event', lazy=True, cascade='all, delete-orphan')
+    collaborators = db.relationship('EventCollaborator', backref='event', lazy=True, cascade='all, delete-orphan')
+
+    def generate_share_token(self):
+        self.share_token = secrets.token_urlsafe(24)
 
     def to_dict(self):
         return {
@@ -51,7 +58,18 @@ class Event(db.Model):
             'creator_id': self.creator_id,
             'created_at': self.created_at.isoformat(),
             'member_count': len(self.members),
+            'share_token': self.share_token,
         }
+
+
+class EventCollaborator(db.Model):
+    """イベント共同編集者"""
+    __tablename__ = 'event_collaborators'
+    id = db.Column(db.Integer, primary_key=True)
+    event_id = db.Column(db.Integer, db.ForeignKey('events.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    joined_at = db.Column(db.DateTime, default=datetime.utcnow)
+    __table_args__ = (db.UniqueConstraint('event_id', 'user_id'),)
 
 
 class EventMember(db.Model):
