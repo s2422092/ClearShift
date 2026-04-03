@@ -1,0 +1,105 @@
+/* ClearShift - Custom Styles */
+
+/* スクロールバーのカスタマイズ */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* トランジション */
+* {
+  box-sizing: border-box;
+}
+
+/* モーダルアニメーション */
+.modal-enter {
+  animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* ステータスバッジ */
+.badge-scheduled {
+  background: #e8f3ff;
+  color: #4DA3FF;
+}
+.badge-absent {
+  background: #fee2e2;
+  color: #ef4444;
+}
+.badge-late {
+  background: #fef3c7;
+  color: #f59e0b;
+}
+
+/* シフトカード */
+.shift-card {
+  transition: box-shadow 0.15s ease;
+}
+.shift-card:hover {
+  box-shadow: 0 4px 12px rgba(77, 163, 255, 0.12);
+}
+
+/* タブ非表示 */
+.tab-content.hidden,
+.vtab-content.hidden {
+  display: none;
+}
+
+/* アサインチップ */
+.assign-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #e8f3ff;
+  color: #2d6cbf;
+  border-radius: 999px;
+  padding: 2px 8px 2px 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.assign-chip.absent {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.assign-chip.late {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+/* フラッシュメッセージ */
+.flash-msg {
+  animation: slideIn 0.2s ease-out;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* 公平性バー */
+.fairness-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: #e8f3ff;
+  overflow: hidden;
+}
+.fairness-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: #4DA3FF;
+  transition: width 0.4s ease;
+}

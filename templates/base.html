@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}ClearShift{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com?v={{ app_version }}"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#4DA3FF',
+            'primary-dark': '#2d8fef',
+            'primary-light': '#e8f3ff',
+            surface: '#F5F7FA',
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ app_version }}" />
+  {% block head %}{% endblock %}
+</head>
+<body class="bg-white text-gray-800 min-h-screen">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div id="flash-container" class="fixed top-4 right-4 z-50 space-y-2">
+        {% for category, message in messages %}
+          <div class="flash-msg px-4 py-3 rounded-lg shadow-lg text-sm font-medium
+            {% if category == 'error' %}bg-red-500 text-white
+            {% elif category == 'success' %}bg-green-500 text-white
+            {% else %}bg-primary text-white{% endif %}">
+            {{ message }}
+          </div>
+        {% endfor %}
+      </div>
+      <script>
+        setTimeout(() => {
+          document.getElementById('flash-container')?.remove();
+        }, 4000);
+      </script>
+    {% endif %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

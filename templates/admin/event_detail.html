@@ -1,0 +1,386 @@
+{% extends "base.html" %}
+{% block title %}{{ event.title }} - ClearShift{% endblock %}
+
+{% block content %}
+<div class="flex h-screen overflow-hidden bg-surface">
+
+  <!-- サイドバー -->
+  <aside class="w-64 flex-shrink-0 bg-white border-r border-gray-100 flex flex-col">
+    <div class="h-14 flex items-center px-4 border-b border-gray-100">
+      <div class="flex items-center gap-2">
+        <div class="w-7 h-7 bg-primary rounded-lg flex items-center justify-center">
+          <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+          </svg>
+        </div>
+        <span class="font-bold text-gray-900">ClearShift</span>
+      </div>
+    </div>
+    <div class="px-3 py-3">
+      <button id="btn-new-event"
+        class="w-full flex items-center gap-2 px-3 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+        </svg>
+        新しいイベント
+      </button>
+    </div>
+    <div class="flex-1 overflow-y-auto px-3 pb-3">
+      <div class="text-xs text-gray-400 font-medium px-2 py-1 mb-1">イベント</div>
+      <div class="space-y-0.5">
+        {% for ev in events %}
+        <a href="{{ url_for('admin.event_detail', event_id=ev.id) }}"
+          class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors group
+            {% if ev.id == event.id %}bg-primary-light text-primary font-medium{% else %}text-gray-700 hover:bg-surface{% endif %}">
+          <div class="w-2 h-2 rounded-full {% if ev.id == event.id %}bg-primary{% else %}bg-gray-300{% endif %} flex-shrink-0"></div>
+          <span class="flex-1 truncate">{{ ev.title }}</span>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="border-t border-gray-100 px-3 py-3">
+      <div class="flex items-center gap-2 px-2">
+        <div class="w-7 h-7 rounded-full bg-primary-light flex items-center justify-center flex-shrink-0">
+          <span class="text-xs font-bold text-primary">{{ current_user.name[0] }}</span>
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-medium text-gray-900 truncate">{{ current_user.name }}</div>
+          <div class="text-xs text-gray-400 truncate">{{ current_user.email }}</div>
+        </div>
+        <a href="{{ url_for('auth.logout') }}" class="text-gray-400 hover:text-gray-600" title="ログアウト">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+          </svg>
+        </a>
+      </div>
+    </div>
+  </aside>
+
+  <!-- メインエリア -->
+  <main class="flex-1 flex flex-col overflow-hidden">
+    <!-- ヘッダー -->
+    <header class="bg-white border-b border-gray-100 px-6 py-3 flex items-center justify-between flex-shrink-0">
+      <div>
+        <h1 class="text-lg font-bold text-gray-900">{{ event.title }}</h1>
+        <p class="text-xs text-gray-400 mt-0.5">
+          {{ event.start_date.strftime('%Y年%m月%d日') }} 〜 {{ event.end_date.strftime('%Y年%m月%d日') }}
+        </p>
+      </div>
+      <div class="flex items-center gap-2">
+        <!-- 閲覧者URL共有 -->
+        <button id="btn-copy-url" title="閲覧者ログインURLをコピー"
+          class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+          </svg>
+          URLをコピー
+        </button>
+        <button id="btn-auto-gen" title="シフト自動生成"
+          class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-white bg-primary rounded-lg hover:bg-primary-dark transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M13 10V3L4 14h7v7l9-11h-7z"/>
+          </svg>
+          自動生成
+        </button>
+      </div>
+    </header>
+
+    <!-- タブ -->
+    <div class="bg-white border-b border-gray-100 px-6 flex gap-0 flex-shrink-0">
+      {% for tab_id, tab_label in [('shift', 'シフト表'), ('members', 'メンバー'), ('fairness', '公平性'), ('settings', '設定')] %}
+      <button data-tab="{{ tab_id }}"
+        class="tab-btn px-4 py-3 text-sm font-medium border-b-2 transition-colors
+          {% if loop.first %}border-primary text-primary{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
+        {{ tab_label }}
+      </button>
+      {% endfor %}
+    </div>
+
+    <!-- タブコンテンツ -->
+    <div class="flex-1 overflow-y-auto">
+
+      <!-- シフト表タブ -->
+      <div id="tab-shift" class="tab-content p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-base font-semibold text-gray-800">シフト表</h2>
+          <button id="btn-add-slot"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-primary border border-primary rounded-lg hover:bg-primary-light transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+            </svg>
+            枠を追加
+          </button>
+        </div>
+        <!-- フィルター -->
+        <div class="flex gap-2 mb-4 flex-wrap">
+          <select id="filter-date" class="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30">
+            <option value="">全ての日付</option>
+          </select>
+          <select id="filter-dept" class="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30">
+            <option value="">全ての局</option>
+          </select>
+        </div>
+        <div id="shift-table" class="space-y-3">
+          <div class="text-center py-8 text-gray-400 text-sm">読み込み中...</div>
+        </div>
+      </div>
+
+      <!-- メンバータブ -->
+      <div id="tab-members" class="tab-content hidden p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-base font-semibold text-gray-800">メンバー管理</h2>
+          <button id="btn-add-member"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-primary border border-primary rounded-lg hover:bg-primary-light transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+            </svg>
+            追加
+          </button>
+        </div>
+        <div id="member-list" class="space-y-2">
+          <div class="text-center py-8 text-gray-400 text-sm">読み込み中...</div>
+        </div>
+      </div>
+
+      <!-- 公平性タブ -->
+      <div id="tab-fairness" class="tab-content hidden p-6">
+        <h2 class="text-base font-semibold text-gray-800 mb-4">担当回数・公平性</h2>
+        <div id="fairness-content" class="space-y-2">
+          <div class="text-center py-8 text-gray-400 text-sm">読み込み中...</div>
+        </div>
+        <div id="unsubmitted-section" class="hidden mt-6">
+          <h3 class="text-sm font-semibold text-gray-700 mb-2">希望未提出者</h3>
+          <div id="unsubmitted-list" class="space-y-1"></div>
+        </div>
+      </div>
+
+      <!-- 設定タブ -->
+      <div id="tab-settings" class="tab-content hidden p-6">
+        <h2 class="text-base font-semibold text-gray-800 mb-4">イベント設定</h2>
+        <div class="max-w-md space-y-4 bg-white rounded-xl p-5 border border-gray-100">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1.5">タイトル</label>
+            <input type="text" id="settings-title" value="{{ event.title }}"
+              class="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1.5">開始日</label>
+              <input type="date" id="settings-start" value="{{ event.start_date.isoformat() }}"
+                class="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1.5">終了日</label>
+              <input type="date" id="settings-end" value="{{ event.end_date.isoformat() }}"
+                class="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1.5">説明</label>
+            <textarea id="settings-desc" rows="2"
+              class="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none">{{ event.description or '' }}</textarea>
+          </div>
+          <button id="btn-save-settings"
+            class="px-5 py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors">
+            保存
+          </button>
+        </div>
+        <div class="max-w-md mt-6 bg-white rounded-xl p-5 border border-red-100">
+          <h3 class="text-sm font-semibold text-red-600 mb-2">危険ゾーン</h3>
+          <p class="text-sm text-gray-500 mb-3">イベントを削除すると、全てのシフト・メンバーデータが削除されます。</p>
+          <button id="btn-delete-event"
+            class="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors">
+            イベントを削除
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<!-- イベント作成モーダル -->
+<div id="modal-new-event" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" id="modal-overlay"></div>
+  <div class="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+    <div class="flex items-center justify-between mb-5">
+      <h3 class="text-lg font-bold text-gray-900">新しいイベントを作成</h3>
+      <button class="modal-close text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <form id="form-new-event" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1.5">イベントタイトル <span class="text-red-400">*</span></label>
+        <input type="text" id="new-event-title" required placeholder="例: 文化祭シフト2025"
+          class="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5">開始日 <span class="text-red-400">*</span></label>
+          <input type="date" id="new-event-start" required
+            class="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5">終了日 <span class="text-red-400">*</span></label>
+          <input type="date" id="new-event-end" required
+            class="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+        </div>
+      </div>
+      <div id="new-event-error" class="hidden text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg"></div>
+      <div class="flex gap-3">
+        <button type="button" class="modal-close flex-1 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">キャンセル</button>
+        <button type="submit" class="flex-1 py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark">作成する</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- シフト枠追加モーダル -->
+<div id="modal-add-slot" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-black/40 backdrop-blur-sm slot-modal-close"></div>
+  <div class="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+    <div class="flex items-center justify-between mb-5">
+      <h3 class="text-lg font-bold text-gray-900">シフト枠を追加</h3>
+      <button class="slot-modal-close text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <form id="form-add-slot" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1.5">日付 <span class="text-red-400">*</span></label>
+        <input type="date" id="slot-date" required
+          class="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5">開始時間 <span class="text-red-400">*</span></label>
+          <input type="time" id="slot-start" required
+            class="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5">終了時間 <span class="text-red-400">*</span></label>
+          <input type="time" id="slot-end" required
+            class="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5">役割・ポジション</label>
+          <input type="text" id="slot-role" placeholder="例: 受付"
+            class="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5">必要人数</label>
+          <input type="number" id="slot-count" value="1" min="1"
+            class="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1.5">場所</label>
+        <input type="text" id="slot-location" placeholder="例: 正門前"
+          class="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+      </div>
+      <div id="slot-error" class="hidden text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg"></div>
+      <div class="flex gap-3">
+        <button type="button" class="slot-modal-close flex-1 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">キャンセル</button>
+        <button type="submit" class="flex-1 py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark">追加する</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- メンバー追加モーダル -->
+<div id="modal-add-member" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-black/40 backdrop-blur-sm member-modal-close"></div>
+  <div class="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+    <div class="flex items-center justify-between mb-5">
+      <h3 class="text-lg font-bold text-gray-900">メンバーを追加</h3>
+      <button class="member-modal-close text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <form id="form-add-member" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1.5">名前 <span class="text-red-400">*</span></label>
+        <input type="text" id="member-name" required placeholder="山田 太郎"
+          class="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1.5">メールアドレス</label>
+        <input type="email" id="member-email" placeholder="yamada@gmail.com"
+          class="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5">学年</label>
+          <input type="text" id="member-grade" placeholder="例: 2年"
+            class="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5">局・グループ</label>
+          <input type="text" id="member-dept" placeholder="例: 広報局"
+            class="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+        </div>
+      </div>
+      <div id="member-error" class="hidden text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg"></div>
+      <div class="flex gap-3">
+        <button type="button" class="member-modal-close flex-1 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">キャンセル</button>
+        <button type="submit" class="flex-1 py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark">追加する</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- アサインモーダル -->
+<div id="modal-assign" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-black/40 backdrop-blur-sm assign-modal-close"></div>
+  <div class="relative bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-base font-bold text-gray-900">メンバーを割り当て</h3>
+      <button class="assign-modal-close text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div id="assign-member-list" class="space-y-1 max-h-64 overflow-y-auto"></div>
+    <div id="assign-error" class="hidden mt-3 text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg"></div>
+  </div>
+</div>
+
+<!-- 自動生成モーダル -->
+<div id="modal-auto-gen" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-black/40 backdrop-blur-sm autogen-close"></div>
+  <div class="relative bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+    <h3 class="text-base font-bold text-gray-900 mb-3">シフト自動生成</h3>
+    <p class="text-sm text-gray-500 mb-4">メンバーの希望をもとに、公平性を考慮してシフトを自動割り当てします。</p>
+    <label class="flex items-center gap-2 mb-5 cursor-pointer">
+      <input type="checkbox" id="autogen-clear" class="w-4 h-4 text-primary rounded" />
+      <span class="text-sm text-gray-700">既存の割り当てをクリアして再生成</span>
+    </label>
+    <div class="flex gap-3">
+      <button class="autogen-close flex-1 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">キャンセル</button>
+      <button id="btn-do-autogen" class="flex-1 py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark">生成する</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const EVENT_ID = {{ event.id }};
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}?v={{ app_version }}"></script>
+{% endblock %}
