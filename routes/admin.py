@@ -1,6 +1,6 @@
-from flask import Blueprint, render_template, redirect, url_for, request, jsonify, session
+from flask import Blueprint, render_template, redirect, url_for, request, jsonify, session, Response
 from flask_login import login_required, current_user
-from models import db, Event, EventMember, ShiftSlot, ShiftAssignment, Availability, EventCollaborator
+from models import db, Event, EventMember, ShiftSlot, ShiftAssignment, Availability, EventCollaborator, User
 from datetime import date, datetime, timedelta
 import csv
 import io
@@ -40,7 +40,18 @@ def event_detail(event_id):
     event = _can_access_event(event_id)
     events = _user_events()
     is_owner = event.creator_id == current_user.id
-    return render_template('admin/event_detail.html', event=event, events=events, is_owner=is_owner)
+    # ヘッダー用：オーナー + 共同編集者リスト
+    collab_users = [
+        User.query.get(c.user_id) for c in event.collaborators
+    ]
+    editors = [{'id': event.creator.id, 'name': event.creator.name, 'role': 'オーナー'}] + [
+        {'id': u.id, 'name': u.name, 'role': '編集者'} for u in collab_users if u
+    ]
+    return render_template(
+        'admin/event_detail.html',
+        event=event, events=events,
+        is_owner=is_owner, editors=editors,
+    )
 
 
 @admin_bp.route('/join/<token>')
@@ -57,6 +68,33 @@ def join_event(token):
 
 
 # ── API: Events ──────────────────────────────────────────────────────────────
+
+@admin_bp.route('/api/events/<int:event_id>/editors', methods=['GET'])
+@login_required
+def api_editors(event_id):
+    event = _can_access_event(event_id)
+    collab_users = [User.query.get(c.user_id) for c in event.collaborators]
+    result = [{'id': event.creator.id, 'name': event.creator.name, 'email': event.creator.email, 'role': 'オーナー'}] + [
+        {'id': u.id, 'name': u.name, 'email': u.email, 'role': '編集者'} for u in collab_users if u
+    ]
+    return jsonify(result)
+
+
+@admin_bp.route('/api/members/csv-template')
+@login_required
+def api_csv_template():
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['名前', 'メールアドレス', '学年', '局・グループ'])
+    writer.writerow(['山田太郎', 'yamada@gmail.com', '2年', '広報局'])
+    writer.writerow(['鈴木花子', 'suzuki@gmail.com', '1', '技術局'])
+    content = '\ufeff' + output.getvalue()  # BOM付きUTF-8（Excelで文字化けしない）
+    return Response(
+        content,
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename="members_template.csv"'},
+    )
+
 
 @admin_bp.route('/api/events', methods=['GET'])
 @login_required
@@ -195,34 +233,70 @@ def api_import_members_csv(event_id):
     else:
         return jsonify({'error': 'ファイルのエンコーディングを認識できません。UTF-8またはShift_JISで保存してください。'}), 400
 
+    # ヘッダーキーワード定義（各フィールドを認識するキーワード）
+    NAME_KEYS  = {'名前', '氏名', '名称', 'name', 'fullname', '姓名'}
+    EMAIL_KEYS = {'メール', 'メールアドレス', 'mail', 'email', 'gmail', 'アドレス'}
+    GRADE_KEYS = {'学年', '年次', '年齢', 'grade', 'year', '学年・年次'}
+    DEPT_KEYS  = {'局', 'グループ', '部', '部署', '班', 'department', 'dept', 'group', '局・グループ', '所属'}
+
+    def detect_col(headers, keywords):
+        """ヘッダー行からキーワードに一致する列インデックスを返す（なければ None）"""
+        for i, h in enumerate(headers):
+            if h.strip().lower() in {k.lower() for k in keywords}:
+                return i
+        return None
+
+    def normalize_grade(val):
+        """'2' → '2年'、'2年' → '2年' のように正規化"""
+        v = val.strip()
+        if v and v.isdigit():
+            return v + '年'
+        return v
+
     reader = csv.reader(io.StringIO(text))
+    rows = list(reader)
     added = 0
     skipped = 0
     errors = []
 
-    for i, row in enumerate(reader, start=1):
-        # ヘッダー行をスキップ（1行目が「名前」「氏名」「name」で始まる場合）
-        if i == 1 and row and row[0].strip().lower() in ('名前', '氏名', 'name'):
-            continue
-        if not row or not row[0].strip():
-            continue
+    if not rows:
+        return jsonify({'ok': True, 'added': 0, 'skipped': 0, 'errors': []})
 
-        name = row[0].strip()
-        email = row[1].strip().lower() if len(row) > 1 else ''
-        grade = row[2].strip() if len(row) > 2 else ''
-        department = row[3].strip() if len(row) > 3 else ''
+    # ─ ヘッダー行の検出 ─
+    first = [c.strip().lower() for c in rows[0]]
+    has_header = any(k.lower() in first for keys in (NAME_KEYS, EMAIL_KEYS, GRADE_KEYS, DEPT_KEYS) for k in keys)
 
+    if has_header:
+        headers = [c.strip() for c in rows[0]]
+        col_name  = detect_col(headers, NAME_KEYS)
+        col_email = detect_col(headers, EMAIL_KEYS)
+        col_grade = detect_col(headers, GRADE_KEYS)
+        col_dept  = detect_col(headers, DEPT_KEYS)
+        data_rows = rows[1:]
+    else:
+        # ヘッダーなし → 固定順（名前, メール, 学年, 局）
+        col_name, col_email, col_grade, col_dept = 0, 1, 2, 3
+        data_rows = rows
+
+    if col_name is None:
+        return jsonify({'error': '「名前」列が見つかりません。ヘッダー行を確認してください。'}), 400
+
+    for i, row in enumerate(data_rows, start=2 if has_header else 1):
+        def get(col):
+            return row[col].strip() if col is not None and col < len(row) else ''
+
+        name = get(col_name)
         if not name:
-            errors.append(f'{i}行目: 名前が空です')
             skipped += 1
             continue
 
+        grade_raw = get(col_grade)
         member = EventMember(
             event_id=event_id,
             name=name,
-            email=email or None,
-            grade=grade or None,
-            department=department or None,
+            email=get(col_email).lower() or None,
+            grade=normalize_grade(grade_raw) or None,
+            department=get(col_dept) or None,
         )
         db.session.add(member)
         added += 1
@@ -234,7 +308,7 @@ def api_import_members_csv(event_id):
 @admin_bp.route('/api/events/<int:event_id>/members/<int:member_id>', methods=['DELETE'])
 @login_required
 def api_delete_member(event_id, member_id):
-    Event.query.filter_by(id=event_id, creator_id=current_user.id).first_or_404()
+    _can_access_event(event_id)
     member = EventMember.query.filter_by(id=member_id, event_id=event_id).first_or_404()
     db.session.delete(member)
     db.session.commit()
@@ -246,7 +320,7 @@ def api_delete_member(event_id, member_id):
 @admin_bp.route('/api/events/<int:event_id>/slots', methods=['GET'])
 @login_required
 def api_slots(event_id):
-    Event.query.filter_by(id=event_id, creator_id=current_user.id).first_or_404()
+    _can_access_event(event_id)
     slots = ShiftSlot.query.filter_by(event_id=event_id).order_by(ShiftSlot.date, ShiftSlot.start_time).all()
     return jsonify([s.to_dict() for s in slots])
 
@@ -254,7 +328,7 @@ def api_slots(event_id):
 @admin_bp.route('/api/events/<int:event_id>/slots', methods=['POST'])
 @login_required
 def api_create_slot(event_id):
-    Event.query.filter_by(id=event_id, creator_id=current_user.id).first_or_404()
+    _can_access_event(event_id)
     data = request.get_json()
 
     try:
@@ -285,7 +359,7 @@ def api_create_slot(event_id):
 @admin_bp.route('/api/events/<int:event_id>/slots/<int:slot_id>', methods=['DELETE'])
 @login_required
 def api_delete_slot(event_id, slot_id):
-    Event.query.filter_by(id=event_id, creator_id=current_user.id).first_or_404()
+    _can_access_event(event_id)
     slot = ShiftSlot.query.filter_by(id=slot_id, event_id=event_id).first_or_404()
     db.session.delete(slot)
     db.session.commit()
@@ -297,7 +371,7 @@ def api_delete_slot(event_id, slot_id):
 @admin_bp.route('/api/events/<int:event_id>/slots/<int:slot_id>/assign', methods=['POST'])
 @login_required
 def api_assign(event_id, slot_id):
-    Event.query.filter_by(id=event_id, creator_id=current_user.id).first_or_404()
+    _can_access_event(event_id)
     slot = ShiftSlot.query.filter_by(id=slot_id, event_id=event_id).first_or_404()
     data = request.get_json()
     member_id = data.get('member_id')
@@ -347,7 +421,7 @@ def api_update_assignment(assignment_id):
 @admin_bp.route('/api/events/<int:event_id>/auto-generate', methods=['POST'])
 @login_required
 def api_auto_generate(event_id):
-    event = Event.query.filter_by(id=event_id, creator_id=current_user.id).first_or_404()
+    event = _can_access_event(event_id)
     data = request.get_json() or {}
     clear_existing = data.get('clear_existing', False)
 
@@ -411,7 +485,7 @@ def api_auto_generate(event_id):
 @admin_bp.route('/api/events/<int:event_id>/stats', methods=['GET'])
 @login_required
 def api_stats(event_id):
-    event = Event.query.filter_by(id=event_id, creator_id=current_user.id).first_or_404()
+    event = _can_access_event(event_id)
     members = EventMember.query.filter_by(event_id=event_id).all()
     slots = ShiftSlot.query.filter_by(event_id=event_id).all()
 
@@ -449,7 +523,7 @@ def api_stats(event_id):
 @admin_bp.route('/api/events/<int:event_id>/availabilities', methods=['GET'])
 @login_required
 def api_availabilities(event_id):
-    Event.query.filter_by(id=event_id, creator_id=current_user.id).first_or_404()
+    _can_access_event(event_id)
     members = EventMember.query.filter_by(event_id=event_id).all()
     result = {}
     for m in members:

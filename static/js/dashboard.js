@@ -477,6 +477,63 @@ async function loadFairness() {
 }
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
+// ─── Share Link ───────────────────────────────────────────────────────────────
+function renderShareLink(token) {
+  const area = $('share-link-area');
+  if (!area) return;
+  const url = token ? `${location.origin}/join/${token}` : null;
+  area.innerHTML = token ? `
+    <div class="flex gap-2">
+      <input id="share-link-input" type="text" readonly value="${url}"
+        class="flex-1 px-3 py-2 bg-surface border border-gray-200 rounded-lg text-xs text-gray-600 focus:outline-none cursor-text" />
+      <button id="btn-copy-share-link"
+        class="px-3 py-2 text-sm text-primary border border-primary rounded-lg hover:bg-primary-light transition-colors flex-shrink-0">
+        コピー
+      </button>
+    </div>
+    <button id="btn-revoke-share" class="text-xs text-gray-400 hover:text-red-500 transition-colors">
+      リンクを無効化する
+    </button>
+  ` : `
+    <button id="btn-gen-share"
+      class="flex items-center gap-1.5 px-4 py-2 text-sm text-primary border border-primary rounded-lg hover:bg-primary-light transition-colors">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+      </svg>
+      共有リンクを発行する
+    </button>
+  `;
+  bindShareButtons();
+}
+
+function bindShareButtons() {
+  $('btn-gen-share')?.addEventListener('click', async () => {
+    try {
+      const d = await apiFetch(`/api/events/${EVENT_ID}/share-token`, { method: 'POST' });
+      renderShareLink(d.share_token);
+      showToast('共有リンクを発行しました');
+    } catch (err) { showToast(err.message, true); }
+  });
+
+  $('btn-copy-share-link')?.addEventListener('click', () => {
+    const val = $('share-link-input')?.value;
+    if (val) navigator.clipboard.writeText(val).then(() => showToast('リンクをコピーしました'));
+  });
+
+  $('btn-revoke-share')?.addEventListener('click', async () => {
+    if (!confirm('共有リンクを無効化しますか？既にリンクを知っているユーザーはアクセスできなくなります。')) return;
+    try {
+      await apiFetch(`/api/events/${EVENT_ID}/share-token`, { method: 'DELETE' });
+      renderShareLink(null);
+      showToast('共有リンクを無効化しました');
+    } catch (err) { showToast(err.message, true); }
+  });
+}
+
+// 初期バインド（Jinja2でレンダリングされたボタン用）
+bindShareButtons();
+
 $('btn-save-settings').addEventListener('click', async () => {
   try {
     await apiFetch(`/api/events/${EVENT_ID}`, {
@@ -505,6 +562,13 @@ $('btn-copy-url').addEventListener('click', () => {
   const url = `${location.origin}/event/${EVENT_ID}/login`;
   navigator.clipboard.writeText(url).then(() => showToast('URLをコピーしました'));
 });
+
+// ─── Editors Modal ───────────────────────────────────────────────────────────
+const modalEditors = $('modal-editors');
+$('btn-show-editors')?.addEventListener('click', () => modalEditors.classList.remove('hidden'));
+document.querySelectorAll('.editors-modal-close').forEach(b =>
+  b.addEventListener('click', () => modalEditors.classList.add('hidden'))
+);
 
 // ─── CSV Import ───────────────────────────────────────────────────────────────
 const modalCsv = $('modal-csv');

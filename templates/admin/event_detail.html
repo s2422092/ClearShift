@@ -64,9 +64,24 @@
     <header class="bg-white border-b border-gray-100 px-6 py-3 flex items-center justify-between flex-shrink-0">
       <div>
         <h1 class="text-lg font-bold text-gray-900">{{ event.title }}</h1>
-        <p class="text-xs text-gray-400 mt-0.5">
-          {{ event.start_date.strftime('%Y年%m月%d日') }} 〜 {{ event.end_date.strftime('%Y年%m月%d日') }}
-        </p>
+        <div class="flex items-center gap-3 mt-0.5">
+          <p class="text-xs text-gray-400">
+            {{ event.start_date.strftime('%Y年%m月%d日') }} 〜 {{ event.end_date.strftime('%Y年%m月%d日') }}
+          </p>
+          <!-- 編集者バッジ（クリックで一覧） -->
+          <button id="btn-show-editors"
+            class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface border border-gray-100 hover:border-primary/40 hover:bg-primary-light transition-colors">
+            <div class="flex -space-x-1.5">
+              {% for ed in editors[:3] %}
+              <div class="w-5 h-5 rounded-full bg-primary flex items-center justify-center ring-2 ring-white"
+                style="opacity: {{ 1 - loop.index0 * 0.2 }}">
+                <span class="text-white text-[9px] font-bold">{{ ed.name[0] }}</span>
+              </div>
+              {% endfor %}
+            </div>
+            <span class="text-xs text-gray-500 ml-1">{{ editors | length }}人が編集中</span>
+          </button>
+        </div>
       </div>
       <div class="flex items-center gap-2">
         <!-- 閲覧者URL共有 -->
@@ -198,6 +213,44 @@
             保存
           </button>
         </div>
+
+        <!-- 共有リンク（オーナーのみ表示） -->
+        {% if is_owner %}
+        <div class="max-w-md mt-6 bg-white rounded-xl p-5 border border-gray-100">
+          <h3 class="text-sm font-semibold text-gray-800 mb-1">共同編集リンク</h3>
+          <p class="text-sm text-gray-500 mb-3">
+            このリンクを共有すると、他のユーザーがこのイベントを共同編集できます。
+          </p>
+          <div id="share-link-area" class="space-y-2">
+            {% if event.share_token %}
+            <div class="flex gap-2">
+              <input id="share-link-input" type="text" readonly
+                value="{{ request.host_url.rstrip('/') }}/join/{{ event.share_token }}"
+                class="flex-1 px-3 py-2 bg-surface border border-gray-200 rounded-lg text-xs text-gray-600 focus:outline-none cursor-text" />
+              <button id="btn-copy-share-link"
+                class="px-3 py-2 text-sm text-primary border border-primary rounded-lg hover:bg-primary-light transition-colors flex-shrink-0">
+                コピー
+              </button>
+            </div>
+            <button id="btn-revoke-share"
+              class="text-xs text-gray-400 hover:text-red-500 transition-colors">
+              リンクを無効化する
+            </button>
+            {% else %}
+            <button id="btn-gen-share"
+              class="flex items-center gap-1.5 px-4 py-2 text-sm text-primary border border-primary rounded-lg hover:bg-primary-light transition-colors">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+              </svg>
+              共有リンクを発行する
+            </button>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
+
+        {% if is_owner %}
         <div class="max-w-md mt-6 bg-white rounded-xl p-5 border border-red-100">
           <h3 class="text-sm font-semibold text-red-600 mb-2">危険ゾーン</h3>
           <p class="text-sm text-gray-500 mb-3">イベントを削除すると、全てのシフト・メンバーデータが削除されます。</p>
@@ -206,6 +259,7 @@
             イベントを削除
           </button>
         </div>
+        {% endif %}
       </div>
 
     </div>
@@ -351,6 +405,38 @@
   </div>
 </div>
 
+<!-- 編集者一覧モーダル -->
+<div id="modal-editors" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-black/40 backdrop-blur-sm editors-modal-close"></div>
+  <div class="relative bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-base font-bold text-gray-900">編集メンバー</h3>
+      <button class="editors-modal-close text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div id="editors-list" class="space-y-1 max-h-72 overflow-y-auto">
+      {% for ed in editors %}
+      <div class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-surface">
+        <div class="w-8 h-8 rounded-full bg-primary-light flex items-center justify-center flex-shrink-0">
+          <span class="text-sm font-bold text-primary">{{ ed.name[0] }}</span>
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-medium text-gray-900">{{ ed.name }}</div>
+          <div class="text-xs text-gray-400">{{ ed.email }}</div>
+        </div>
+        <span class="text-xs font-medium px-2 py-0.5 rounded-full
+          {% if ed.role == 'オーナー' %}bg-primary-light text-primary{% else %}bg-surface text-gray-500{% endif %}">
+          {{ ed.role }}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
 <!-- CSV読み込みモーダル -->
 <div id="modal-csv" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
   <div class="absolute inset-0 bg-black/40 backdrop-blur-sm csv-modal-close"></div>
@@ -393,7 +479,14 @@
           </tbody>
         </table>
       </div>
-      <p class="text-xs text-gray-400 mt-2">・1行目にヘッダー行があっても自動でスキップします<br/>・UTF-8 / Shift_JIS どちらも対応</p>
+      <p class="text-xs text-gray-400 mt-2">・列の順番は自動で認識します（どの順でもOK）<br/>・学年は「2」でも「2年」でも可<br/>・UTF-8 / Shift_JIS どちらも対応</p>
+      <a href="/api/members/csv-template" download
+        class="inline-flex items-center gap-1.5 mt-3 text-xs text-primary hover:underline">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+        </svg>
+        テンプレートをダウンロード
+      </a>
     </div>
 
     <form id="form-csv" enctype="multipart/form-data" class="space-y-4">
