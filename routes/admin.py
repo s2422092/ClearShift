@@ -249,7 +249,7 @@ def api_import_members_csv(event_id):
         return jsonify({'error': 'ファイルのエンコーディングを認識できません。UTF-8またはShift_JISで保存してください。'}), 400
 
     NAME_KEYS  = {'名前', '氏名', '名称', 'name', 'fullname', '姓名', '氏　名'}
-    EMAIL_KEYS = {'メール', 'メールアドレス', 'mail', 'email', 'gmail', 'アドレス'}
+    EMAIL_KEYS = {'メール', 'メールアドレス', 'mail', 'email', 'gmail', 'gamil', 'アドレス', 'メアド', 'mail address'}
     GRADE_KEYS = {'学年', '年次', '年齢', 'grade', 'year', '学年・年次'}
     DEPT_KEYS  = {'局', 'グループ', '部', '部署', '班', 'department', 'dept', 'group', '局・グループ', '所属'}
     ALL_KEYS   = NAME_KEYS | EMAIL_KEYS | GRADE_KEYS | DEPT_KEYS
@@ -291,12 +291,24 @@ def api_import_members_csv(event_id):
             header_row = row
             break
 
+    def detect_email_col_by_data(rows):
+        """ヘッダーで判定できない場合、データ行の @ を含むセルからメール列を推定する"""
+        col_counts = {}
+        for row in rows:
+            for i, cell in enumerate(row):
+                if '@' in cell.strip():
+                    col_counts[i] = col_counts.get(i, 0) + 1
+        return max(col_counts, key=col_counts.get) if col_counts else None
+
     if header_row is not None:
         col_name  = detect_col(header_row, NAME_KEYS)
         col_email = detect_col(header_row, EMAIL_KEYS)
         col_grade = detect_col(header_row, GRADE_KEYS)
         col_dept  = detect_col(header_row, DEPT_KEYS)
         data_rows = [row for orig_i, row in non_empty if orig_i > header_orig_idx]
+        # ヘッダーでメール列が見つからなかった場合はデータから推定
+        if col_email is None:
+            col_email = detect_email_col_by_data(data_rows)
     else:
         # ヘッダーなし → 最初の非空行の最初の非空セルを起点に固定順
         first_row = non_empty[0][1]
@@ -338,6 +350,7 @@ def api_import_members_csv(event_id):
 def api_delete_member(event_id, member_id):
     _can_access_event(event_id)
     member = EventMember.query.filter_by(id=member_id, event_id=event_id).first_or_404()
+    ShiftAssignment.query.filter_by(member_id=member.id).delete(synchronize_session=False)
     db.session.delete(member)
     db.session.commit()
     return jsonify({'ok': True})
@@ -351,9 +364,24 @@ def api_bulk_delete_members(event_id):
     ids = data.get('ids', [])
     if not ids:
         return jsonify({'error': '削除するメンバーを選択してください。'}), 400
+    # 対象メンバーのIDを確定（イベント所属チェック込み）
+    valid_ids = [
+        m.id for m in EventMember.query.filter(
+            EventMember.id.in_(ids),
+            EventMember.event_id == event_id,
+        ).all()
+    ]
+    if not valid_ids:
+        return jsonify({'error': '削除対象のメンバーが見つかりません。'}), 400
+
+    # 関連するシフト割り当てを先に削除（外部キー制約対策）
+    ShiftAssignment.query.filter(
+        ShiftAssignment.member_id.in_(valid_ids)
+    ).delete(synchronize_session=False)
+
+    # メンバー削除
     deleted = EventMember.query.filter(
-        EventMember.id.in_(ids),
-        EventMember.event_id == event_id,
+        EventMember.id.in_(valid_ids),
     ).delete(synchronize_session=False)
     db.session.commit()
     return jsonify({'ok': True, 'deleted': deleted})

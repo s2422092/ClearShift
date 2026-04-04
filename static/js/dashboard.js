@@ -780,12 +780,10 @@ $('form-csv').addEventListener('submit', async e => {
       errEl.classList.remove('hidden');
       return;
     }
-    resultEl.innerHTML = `
-      <p class="text-green-700 font-medium">${data.added}人を追加しました。</p>
-      ${data.skipped ? `<p class="text-gray-500">スキップ: ${data.skipped}行</p>` : ''}
-      ${data.errors.length ? `<p class="text-amber-600">${data.errors.join('<br/>')}</p>` : ''}
-    `;
-    resultEl.classList.remove('hidden');
+    modalCsv.classList.add('hidden');
+    $('form-csv').reset();
+    $('csv-file-label').textContent = 'クリックまたはドラッグ&ドロップ';
+    showToast(`${data.added}人を追加しました${data.skipped ? `（${data.skipped}行スキップ）` : ''}`);
     loadMembers();
   } catch (err) {
     errEl.textContent = 'ネットワークエラーが発生しました。';
