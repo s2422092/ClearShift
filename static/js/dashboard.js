@@ -134,7 +134,7 @@ function renderMemberList() {
   // 局でグループ化（学年降順でソート）
   const depts = {};
   [...members]
-    .sort((a, b) => gradeNum(b.grade) - gradeNum(a.grade))
+    .sort((a, b) => (b.is_leader ? 1 : 0) - (a.is_leader ? 1 : 0) || gradeNum(b.grade) - gradeNum(a.grade))
     .forEach(m => {
       const key = m.department || '未分類';
       (depts[key] = depts[key] || []).push(m);
@@ -503,7 +503,7 @@ function renderShiftBoard() {
     });
   });
 
-  const sortedMembers = [...members].sort((a, b) => gradeNum(b.grade) - gradeNum(a.grade));
+  const sortedMembers = [...members].sort((a, b) => (b.is_leader ? 1 : 0) - (a.is_leader ? 1 : 0) || gradeNum(b.grade) - gradeNum(a.grade));
 
   // 時間グループ（1段目ヘッダー用）
   const hourGroups = [];
@@ -659,8 +659,9 @@ function renderShiftBoard() {
     </table>`;
 
   board.querySelectorAll('.board-cell').forEach(cell => {
-    cell.addEventListener('click', () => {
+    cell.addEventListener('click', (e) => {
       if (isCopyMode && copySourceMemberId !== parseInt(cell.dataset.member)) {
+        e.stopPropagation();
         handleBoardCopyClick(parseInt(cell.dataset.member));
         return;
       }
@@ -675,9 +676,25 @@ function renderShiftBoard() {
   });
 
   board.querySelectorAll('.board-cell-occupied').forEach(cell => {
-    cell.addEventListener('click', () => {
-      if (isCopyMode) return;
+    cell.addEventListener('click', (e) => {
+      if (isCopyMode) {
+        const targetMid = parseInt(cell.dataset.member);
+        if (targetMid !== copySourceMemberId) {
+          e.stopPropagation();
+          handleBoardCopyClick(targetMid);
+        }
+        return;
+      }
       openOccupiedCellMenu(parseInt(cell.dataset.slot), parseInt(cell.dataset.aid));
+    });
+  });
+
+  // 名前・局列（コピーモード時のみ）
+  board.querySelectorAll('tr[data-member-row]').forEach(row => {
+    row.addEventListener('click', () => {
+      if (!isCopyMode) return;
+      const targetMid = parseInt(row.dataset.memberRow);
+      if (targetMid !== copySourceMemberId) handleBoardCopyClick(targetMid);
     });
   });
 
