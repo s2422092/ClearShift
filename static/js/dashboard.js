@@ -202,6 +202,12 @@ function renderMemberList() {
               </div>
             </div>
             ${!selectMode ? `
+              <button class="btn-toggle-leader transition-colors opacity-0 group-hover:opacity-100 ${m.is_leader ? 'text-yellow-400 opacity-100' : 'text-gray-300 hover:text-yellow-400'}"
+                data-id="${m.id}" title="${m.is_leader ? 'リーダー解除' : 'リーダーに設定'}">
+                <svg class="w-4 h-4" fill="${m.is_leader ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/>
+                </svg>
+              </button>
               <button class="btn-del-member text-gray-300 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
                 data-id="${m.id}" title="削除">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -272,6 +278,25 @@ function renderMemberList() {
         try {
           await apiFetch(`/api/events/${EVENT_ID}/members/${btn.dataset.id}`, { method: 'DELETE' });
           await loadMembers();
+        } catch (err) { showToast(err.message, true); }
+      });
+    });
+
+    // リーダートグル
+    list.querySelectorAll('.btn-toggle-leader').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const m = members.find(x => x.id === parseInt(btn.dataset.id));
+        if (!m) return;
+        try {
+          const updated = await apiFetch(`/api/events/${EVENT_ID}/members/${m.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ is_leader: !m.is_leader }),
+          });
+          const idx = members.findIndex(x => x.id === updated.id);
+          if (idx !== -1) members[idx] = updated;
+          renderMemberList();
+          renderShiftBoard();
         } catch (err) { showToast(err.message, true); }
       });
     });
@@ -362,6 +387,8 @@ let boardSelectStart = null;
 let boardHoverTime = null;
 let pendingBoardSlot = null;  // 新規登録用
 let editingSlot = null;       // 編集モード用 { slotId, assignmentId, memberId }
+let boardSearchQuery = '';    // 名前検索
+let copySourceMemberId = null; // コピー元メンバーID
 
 const BOARD_START_H = 8;
 const BOARD_END_H   = 22;
@@ -529,46 +556,100 @@ function renderShiftBoard() {
     </th>`;
   }).join('');
 
-  const rowsHtml = sortedMembers.map(m => {
-    const cellsHtml = cols.map(col => {
-      const key = `${m.id}|${col}`;
-      const cell = cellMap.get(key);
-      const cb = colBorder(col);
+  // グループ（局）ごとにソート済みメンバーをグループ化
+  const deptOrder = [];
+  const deptGroups = {};
+  sortedMembers.forEach(m => {
+    const d = m.department || '未分類';
+    if (!deptGroups[d]) { deptGroups[d] = []; deptOrder.push(d); }
+    deptGroups[d].push(m);
+  });
 
-      if (cell) {
-        const bg = slotColor(cell.jobColor, cell.status);
-        const border = cell.isFirst ? `border-left: 3px solid ${cell.jobColor};` : '';
-        const roleText = cell.isFirst && cell.role
-          ? `<span class="absolute inset-0 flex items-center px-1 text-[9px] font-semibold text-primary/80 overflow-hidden whitespace-nowrap pointer-events-none">${cell.role}</span>`
-          : '';
-        return `<td style="min-width:${cw}px;width:${cw}px;background:${bg};${border}"
-          class="board-cell-occupied relative h-9 cursor-pointer border-b border-b-white/30 ${cb}"
-          data-slot="${cell.slotId}" data-aid="${cell.assignmentId}" data-member="${m.id}" data-time="${col}">${roleText}</td>`;
-      }
+  const isCopyMode = copySourceMemberId !== null;
 
-      return `<td style="min-width:${cw}px;width:${cw}px"
-        class="board-cell h-9 cursor-pointer border-b border-b-gray-50 hover:bg-primary/10 ${cb}"
-        data-member="${m.id}" data-time="${col}"></td>`;
+  const rowsHtml = deptOrder.map(dept => {
+    const deptMembers = deptGroups[dept];
+    const deptSeparator = `
+      <tr class="dept-separator">
+        <td colspan="${cols.length + 2}" class="bg-gray-100 border-t-2 border-b border-gray-300 px-3 py-1 select-none sticky left-0">
+          <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wide">${dept}</span>
+          <span class="text-[10px] text-gray-400 ml-1">${deptMembers.length}人</span>
+        </td>
+      </tr>`;
+
+    const memberRows = deptMembers.map(m => {
+      const isSearchMatch = boardSearchQuery && m.name.includes(boardSearchQuery);
+      const isSearchDim   = boardSearchQuery && !isSearchMatch;
+      const isCopySrc  = copySourceMemberId === m.id;
+      const isCopyTgt  = isCopyMode && copySourceMemberId !== m.id;
+      const leaderBg   = m.is_leader ? 'background:#FEFCE8;' : '';
+
+      const cellsHtml = cols.map(col => {
+        const key = `${m.id}|${col}`;
+        const cell = cellMap.get(key);
+        const cb = colBorder(col);
+
+        if (cell) {
+          let bg = slotColor(cell.jobColor, cell.status);
+          if (m.is_leader) bg = slotColor(cell.jobColor === '#4DA3FF' ? '#EAB308' : cell.jobColor, cell.status);
+          const border = cell.isFirst ? `border-left: 3px solid ${cell.jobColor};` : '';
+          const roleText = cell.isFirst && cell.role
+            ? `<span class="absolute inset-0 flex items-center px-1 text-[9px] font-semibold overflow-hidden whitespace-nowrap pointer-events-none" style="color:${cell.jobColor}">${cell.role}</span>`
+            : '';
+          return `<td style="min-width:${cw}px;width:${cw}px;background:${bg};${border}"
+            class="board-cell-occupied relative h-9 cursor-pointer border-b border-b-white/30 ${cb}"
+            data-slot="${cell.slotId}" data-aid="${cell.assignmentId}" data-member="${m.id}" data-time="${col}">${roleText}</td>`;
+        }
+        return `<td style="min-width:${cw}px;width:${cw}px"
+          class="board-cell h-9 cursor-pointer border-b border-b-gray-50 ${isCopyTgt ? 'hover:bg-green-100' : 'hover:bg-primary/10'} ${cb}"
+          data-member="${m.id}" data-time="${col}"></td>`;
+      }).join('');
+
+      const dimStyle = isSearchDim ? 'opacity:0.25;' : '';
+      const hlStyle  = isSearchMatch ? 'outline:2px solid #4DA3FF;outline-offset:-1px;' : '';
+      const copyStyle = isCopySrc ? 'outline:2px solid #9F7AEA;outline-offset:-1px;' : '';
+
+      return `<tr style="${leaderBg}${dimStyle}${hlStyle}${copyStyle}" data-member-row="${m.id}">
+        <td class="sticky left-0 z-10 border-r border-b border-gray-100 px-2 py-1 whitespace-nowrap select-none"
+          style="min-width:140px;${leaderBg}${dimStyle}">
+          <div class="flex items-center gap-1.5">
+            ${m.is_leader ? '<span class="text-yellow-400 text-xs">★</span>' : ''}
+            <div class="flex-1 min-w-0">
+              <div class="text-xs font-semibold text-gray-800 truncate">${m.name}</div>
+              ${m.grade ? `<div class="text-[9px] text-gray-400">${m.grade}</div>` : ''}
+            </div>
+            <button class="btn-board-copy flex-shrink-0 text-gray-300 hover:text-purple-400 transition-colors ${isCopySrc ? 'text-purple-500' : ''}"
+              data-mid="${m.id}" title="${isCopySrc ? 'コピー元（クリックで解除）' : 'このメンバーのシフトをコピー'}">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+              </svg>
+            </button>
+          </div>
+        </td>
+        <td class="sticky border-r border-b border-gray-100 px-2 py-1 whitespace-nowrap select-none text-[9px] text-gray-400"
+          style="left:140px;min-width:70px;${leaderBg}${dimStyle}">
+          ${m.department || ''}
+        </td>
+        ${cellsHtml}
+      </tr>`;
     }).join('');
 
-    const meta = [m.grade, m.department].filter(Boolean).join('　');
-    return `<tr>
-      <td class="sticky left-0 z-10 bg-white border-r border-b border-gray-100 px-3 py-1.5 whitespace-nowrap select-none" style="min-width:160px">
-        <div class="text-xs font-semibold text-gray-800">${m.name}</div>
-        ${meta ? `<div class="text-[10px] text-gray-400 mt-0.5">${meta}</div>` : ''}
-      </td>
-      ${cellsHtml}
-    </tr>`;
+    return deptSeparator + memberRows;
   }).join('');
 
-  const totalW = 160 + cols.length * cw;
+  const MEMBER_W = 140, DEPT_W = 70;
+  const totalW = MEMBER_W + DEPT_W + cols.length * cw;
   board.innerHTML = `
     <table class="border-collapse" style="width:${totalW}px">
       <thead>
         <tr>
-          <th rowspan="2" style="min-width:160px;top:0"
+          <th rowspan="2" style="min-width:${MEMBER_W}px;top:0"
             class="sticky left-0 z-30 bg-white border-r border-b-2 border-b-gray-200 border-gray-100 px-3 text-left text-xs text-gray-500 font-medium select-none">
             メンバー
+          </th>
+          <th rowspan="2" style="min-width:${DEPT_W}px;top:0;left:${MEMBER_W}px"
+            class="sticky z-30 bg-white border-r border-b-2 border-b-gray-200 border-gray-100 px-2 text-left text-xs text-gray-500 font-medium select-none">
+            局
           </th>
           ${topRowHtml}
         </tr>
@@ -579,6 +660,10 @@ function renderShiftBoard() {
 
   board.querySelectorAll('.board-cell').forEach(cell => {
     cell.addEventListener('click', () => {
+      if (isCopyMode && copySourceMemberId !== parseInt(cell.dataset.member)) {
+        handleBoardCopyClick(parseInt(cell.dataset.member));
+        return;
+      }
       handleBoardCellClick(parseInt(cell.dataset.member), cell.dataset.time, cols);
     });
     cell.addEventListener('mouseenter', () => {
@@ -589,11 +674,32 @@ function renderShiftBoard() {
     });
   });
 
-  updateBoardHighlight();
-
   board.querySelectorAll('.board-cell-occupied').forEach(cell => {
-    cell.addEventListener('click', () => openOccupiedCellMenu(parseInt(cell.dataset.slot), parseInt(cell.dataset.aid)));
+    cell.addEventListener('click', () => {
+      if (isCopyMode) return;
+      openOccupiedCellMenu(parseInt(cell.dataset.slot), parseInt(cell.dataset.aid));
+    });
   });
+
+  // コピーボタン
+  board.querySelectorAll('.btn-board-copy').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const mid = parseInt(btn.dataset.mid);
+      if (copySourceMemberId === mid) {
+        copySourceMemberId = null;
+        updateBoardHint();
+        renderShiftBoard();
+      } else {
+        copySourceMemberId = mid;
+        boardSelectStart = null;
+        updateBoardHint();
+        renderShiftBoard();
+      }
+    });
+  });
+
+  updateBoardHighlight();
 }
 
 function handleBoardCellClick(memberId, timeStr, cols) {
@@ -652,12 +758,32 @@ function updateBoardHighlight() {
 function updateBoardHint() {
   const hint = $('board-hint');
   if (!hint) return;
-  if (boardSelectStart) {
+  if (copySourceMemberId !== null) {
+    const m = members.find(x => x.id === copySourceMemberId);
+    $('board-hint-text').textContent = `「${m?.name || ''}」のシフトをコピー中。コピー先のメンバー行をクリックしてください。（コピーアイコンを再クリックで解除）`;
+    hint.classList.remove('hidden');
+  } else if (boardSelectStart) {
     const m = members.find(x => x.id === boardSelectStart.memberId);
     $('board-hint-text').textContent = `${m?.name || ''} — ${boardSelectStart.timeStr} を開始時間として選択中。終了時間のセルをクリックしてください。`;
     hint.classList.remove('hidden');
   } else {
     hint.classList.add('hidden');
+  }
+}
+
+async function handleBoardCopyClick(targetMemberId) {
+  if (copySourceMemberId === null || copySourceMemberId === targetMemberId) return;
+  const src = members.find(x => x.id === copySourceMemberId);
+  const tgt = members.find(x => x.id === targetMemberId);
+  try {
+    const res = await apiFetch(`/api/events/${EVENT_ID}/members/${copySourceMemberId}/copy-to/${targetMemberId}`, {
+      method: 'POST',
+    });
+    copySourceMemberId = null;
+    await loadShifts();
+    showToast(`「${src?.name || ''}」→「${tgt?.name || ''}」にシフトをコピーしました（${res.copied}件）`);
+  } catch (err) {
+    showToast(err.message, true);
   }
 }
 
@@ -1376,6 +1502,12 @@ $('form-csv').addEventListener('submit', async e => {
     submitBtn.disabled = false;
     submitBtn.textContent = 'インポート';
   }
+});
+
+// ─── Board Search ─────────────────────────────────────────────────────────────
+$('board-search')?.addEventListener('input', e => {
+  boardSearchQuery = e.target.value.trim();
+  renderShiftBoard();
 });
 
 // ─── Init ─────────────────────────────────────────────────────────────────────

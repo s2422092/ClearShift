@@ -84,6 +84,9 @@ def create_app():
             conn.execute(text(
                 "ALTER TABLE shift_slots ADD COLUMN IF NOT EXISTS job_type_id INTEGER REFERENCES job_types(id) ON DELETE SET NULL"
             ))
+            conn.execute(text(
+                "ALTER TABLE event_members ADD COLUMN IF NOT EXISTS is_leader BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
             conn.commit()
 
     return app

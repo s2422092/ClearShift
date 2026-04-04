@@ -387,6 +387,41 @@ def api_bulk_delete_members(event_id):
     return jsonify({'ok': True, 'deleted': deleted})
 
 
+@admin_bp.route('/api/events/<int:event_id>/members/<int:member_id>', methods=['PATCH'])
+@login_required
+def api_update_member(event_id, member_id):
+    _can_access_event(event_id)
+    member = EventMember.query.filter_by(id=member_id, event_id=event_id).first_or_404()
+    data = request.get_json()
+    if 'is_leader' in data:
+        member.is_leader = bool(data['is_leader'])
+    db.session.commit()
+    return jsonify(member.to_dict())
+
+
+@admin_bp.route('/api/events/<int:event_id>/members/<int:src_id>/copy-to/<int:dst_id>', methods=['POST'])
+@login_required
+def api_copy_shifts(event_id, src_id, dst_id):
+    """src メンバーのシフトを dst メンバーに複製する"""
+    _can_access_event(event_id)
+    src = EventMember.query.filter_by(id=src_id, event_id=event_id).first_or_404()
+    dst = EventMember.query.filter_by(id=dst_id, event_id=event_id).first_or_404()
+
+    src_assignments = ShiftAssignment.query.filter_by(member_id=src_id).join(ShiftSlot).filter(
+        ShiftSlot.event_id == event_id
+    ).all()
+
+    copied = 0
+    for a in src_assignments:
+        existing = ShiftAssignment.query.filter_by(slot_id=a.slot_id, member_id=dst_id).first()
+        if not existing:
+            db.session.add(ShiftAssignment(slot_id=a.slot_id, member_id=dst_id))
+            copied += 1
+
+    db.session.commit()
+    return jsonify({'ok': True, 'copied': copied})
+
+
 # ── API: Shift Slots ─────────────────────────────────────────────────────────
 
 @admin_bp.route('/api/events/<int:event_id>/slots', methods=['GET'])

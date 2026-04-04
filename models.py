@@ -84,6 +84,8 @@ class EventMember(db.Model):
     department = db.Column(db.String(100))  # 局
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    is_leader = db.Column(db.Boolean, default=False, nullable=False)
+
     availabilities = db.relationship('Availability', backref='member', lazy=True, cascade='all, delete-orphan')
     assignments = db.relationship('ShiftAssignment', backref='member', lazy=True, cascade='all, delete-orphan')
 
@@ -95,6 +97,7 @@ class EventMember(db.Model):
             'email': self.email,
             'grade': self.grade,
             'department': self.department,
+            'is_leader': self.is_leader,
         }
 
 

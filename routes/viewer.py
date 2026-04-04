@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, redirect, url_for, request, jsonify, session
-from models import db, Event, EventMember, ShiftSlot, ShiftAssignment, Availability
+from models import db, Event, EventMember, ShiftSlot, ShiftAssignment, Availability, JobType
 from datetime import date
 
 viewer_bp = Blueprint('viewer', __name__)
@@ -66,10 +66,21 @@ def api_my_shifts(event_id):
         ShiftSlot.event_id == event_id
     ).order_by(ShiftSlot.date, ShiftSlot.start_time).all()
 
+    jobs = {j.id: j for j in JobType.query.filter_by(event_id=event_id).all()}
+
     result = []
     for a in assignments:
         slot = a.slot
+        job = jobs.get(slot.job_type_id)
+        # 同じスロットに入っている他のメンバー
+        colleagues = []
+        for other_a in slot.assignments:
+            if other_a.member_id != member.id:
+                m = EventMember.query.get(other_a.member_id)
+                if m:
+                    colleagues.append({'name': m.name, 'department': m.department, 'grade': m.grade})
         result.append({
+            'slot_id': slot.id,
             'date': slot.date.isoformat(),
             'start_time': slot.start_time.strftime('%H:%M'),
             'end_time': slot.end_time.strftime('%H:%M'),
@@ -77,6 +88,9 @@ def api_my_shifts(event_id):
             'location': slot.location,
             'status': a.status,
             'note': a.note,
+            'job_color': job.color if job else '#4DA3FF',
+            'job_description': job.description if job else None,
+            'colleagues': colleagues,
         })
     return jsonify(result)
 
@@ -89,7 +103,43 @@ def api_all_shifts(event_id):
         return jsonify({'error': 'ログインしてください。'}), 401
 
     slots = ShiftSlot.query.filter_by(event_id=event_id).order_by(ShiftSlot.date, ShiftSlot.start_time).all()
-    return jsonify([s.to_dict() for s in slots])
+    jobs = {j.id: j for j in JobType.query.filter_by(event_id=event_id).all()}
+    members = {m.id: m for m in EventMember.query.filter_by(event_id=event_id).all()}
+
+    result = []
+    for s in slots:
+        job = jobs.get(s.job_type_id)
+        d = s.to_dict()
+        d['job_color'] = job.color if job else '#4DA3FF'
+        d['assignments'] = [{
+            'member_id': a.member_id,
+            'member_name': members[a.member_id].name if a.member_id in members else '',
+            'member_department': members[a.member_id].department if a.member_id in members else '',
+            'is_leader': members[a.member_id].is_leader if a.member_id in members else False,
+            'status': a.status,
+        } for a in s.assignments]
+        result.append(d)
+    return jsonify(result)
+
+
+@viewer_bp.route('/event/<int:event_id>/api/members')
+def api_viewer_members(event_id):
+    event = Event.query.get_or_404(event_id)
+    member = get_current_viewer(event_id)
+    if not member:
+        return jsonify({'error': 'ログインしてください。'}), 401
+    members = EventMember.query.filter_by(event_id=event_id).all()
+    return jsonify([m.to_dict() for m in members])
+
+
+@viewer_bp.route('/event/<int:event_id>/api/jobs')
+def api_viewer_jobs(event_id):
+    event = Event.query.get_or_404(event_id)
+    member = get_current_viewer(event_id)
+    if not member:
+        return jsonify({'error': 'ログインしてください。'}), 401
+    jobs = JobType.query.filter_by(event_id=event_id).all()
+    return jsonify([j.to_dict() for j in jobs])
 
 
 @viewer_bp.route('/event/<int:event_id>/api/availability', methods=['GET'])
