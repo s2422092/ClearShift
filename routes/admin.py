@@ -444,8 +444,7 @@ def api_delete_slot(event_id, slot_id):
 
 JOB_COLOR_PALETTE = [
     '#4DA3FF', '#FF6B6B', '#48BB78', '#F6AD55', '#9F7AEA',
-    '#4FD1C5', '#F687B3', '#ED8936', '#667EEA', '#38B2AC',
-    '#FC8181', '#68D391', '#76E4F7', '#FBD38D', '#B794F4',
+    '#4FD1C5', '#F687B3', '#FC8181', '#667EEA', '#38B2AC',
 ]
 
 

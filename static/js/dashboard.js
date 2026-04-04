@@ -319,7 +319,8 @@ let intervalMin = 30;
 let eventDates = [];
 let boardSelectStart = null;
 let boardHoverTime = null;
-let pendingBoardSlot = null;
+let pendingBoardSlot = null;  // 新規登録用
+let editingSlot = null;       // 編集モード用 { slotId, assignmentId, memberId }
 
 const BOARD_START_H = 8;
 const BOARD_END_H   = 22;
@@ -621,21 +622,41 @@ function updateBoardHint() {
 function openBoardSlotModal(memberId, startTime, endTime) {
   const m = members.find(x => x.id === memberId);
   pendingBoardSlot = { memberId, startTime, endTime };
+  editingSlot = null;
+
+  // 新規モードのUI設定
+  $('board-slot-title').textContent = 'シフトを登録';
+  $('btn-board-slot-delete').classList.add('hidden');
+  $('btn-board-slot-submit').textContent = '登録する';
+
   $('board-slot-info').innerHTML = `
     <div class="flex justify-between text-xs"><span class="text-gray-500">メンバー</span><span class="font-semibold text-gray-800">${m?.name || ''}</span></div>
     <div class="flex justify-between text-xs"><span class="text-gray-500">日付</span><span class="font-semibold text-gray-800">${fmtDate(currentDay)}</span></div>
     <div class="flex justify-between text-xs"><span class="text-gray-500">時間</span><span class="font-semibold text-gray-800">${startTime} 〜 ${endTime}</span></div>`;
 
-  // 仕事ドロップダウン更新
+  populateJobSelect(null);
+  $('board-slot-error').classList.add('hidden');
+  $('modal-board-slot').classList.remove('hidden');
+}
+
+function closeBoardSlotModal() {
+  $('modal-board-slot').classList.add('hidden');
+  pendingBoardSlot = null;
+  editingSlot = null;
+}
+
+// 共通：仕事ドロップダウンを更新し、選択済みの job をハイライト
+function populateJobSelect(currentJobTypeId) {
   const sel = $('board-slot-job');
   sel.innerHTML = '<option value="">仕事を選択してください...</option>' +
-    jobs.map(j => `<option value="${j.id}">${j.title}（目安 ${j.required_count}人）</option>`).join('');
-  $('board-slot-job-detail').classList.add('hidden');
-  sel.onchange = () => {
+    jobs.map(j => `<option value="${j.id}" ${j.id === currentJobTypeId ? 'selected' : ''}>${j.title}（目安 ${j.required_count}人）</option>`).join('');
+
+  const updateDetail = () => {
     const job = jobs.find(j => j.id === parseInt(sel.value));
     const detail = $('board-slot-job-detail');
     if (job) {
       detail.innerHTML = [
+        `<div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full flex-shrink-0" style="background:${job.color}"></span><span class="font-semibold" style="color:${job.color}">${job.title}</span></div>`,
         job.description ? `<div><span class="text-gray-400">内容:</span> ${job.description}</div>` : '',
         job.location    ? `<div><span class="text-gray-400">集合場所:</span> ${job.location}</div>` : '',
         `<div><span class="text-gray-400">担当目安:</span> ${job.required_count}人</div>`,
@@ -646,24 +667,50 @@ function openBoardSlotModal(memberId, startTime, endTime) {
     }
   };
 
+  sel.onchange = updateDetail;
+  updateDetail(); // 初期表示
+}
+
+function openOccupiedCellMenu(slotId, assignmentId) {
+  const slot = slots.find(s => s.id === slotId);
+  if (!slot) return;
+
+  const assignment = slot.assignments.find(a => a.id === assignmentId);
+  const member = members.find(m => m.id === assignment?.member_id);
+  const job = jobs.find(j => j.id === slot.job_type_id);
+
+  editingSlot = { slotId, assignmentId, memberId: assignment?.member_id };
+  pendingBoardSlot = null;
+
+  // タイトル・削除ボタンを編集モードに切替
+  $('board-slot-title').textContent = 'シフトの詳細';
+  $('btn-board-slot-delete').classList.remove('hidden');
+  $('btn-board-slot-submit').textContent = '変更を保存';
+
+  // シフト情報表示
+  $('board-slot-info').innerHTML = [
+    `<div class="flex justify-between text-xs"><span class="text-gray-500">メンバー</span><span class="font-semibold text-gray-800">${member?.name || '不明'}</span></div>`,
+    `<div class="flex justify-between text-xs"><span class="text-gray-500">日付</span><span class="font-semibold text-gray-800">${fmtDate(slot.date)}</span></div>`,
+    `<div class="flex justify-between text-xs"><span class="text-gray-500">時間</span><span class="font-semibold text-gray-800">${slot.start_time} 〜 ${slot.end_time}</span></div>`,
+  ].join('');
+
+  populateJobSelect(slot.job_type_id);
   $('board-slot-error').classList.add('hidden');
   $('modal-board-slot').classList.remove('hidden');
 }
 
-function openOccupiedCellMenu(slotId, assignmentId) {
-  if (!confirm('このシフト割り当てを解除しますか？')) return;
-  apiFetch(`/api/assignments/${assignmentId}`, { method: 'DELETE' })
-    .then(() => loadShifts())
-    .catch(err => showToast(err.message, true));
-}
+$('btn-board-slot-cancel').addEventListener('click', closeBoardSlotModal);
+$('board-slot-overlay').addEventListener('click', closeBoardSlotModal);
 
-$('btn-board-slot-cancel').addEventListener('click', () => {
-  $('modal-board-slot').classList.add('hidden');
-  pendingBoardSlot = null;
-});
-$('board-slot-overlay').addEventListener('click', () => {
-  $('modal-board-slot').classList.add('hidden');
-  pendingBoardSlot = null;
+$('btn-board-slot-delete').addEventListener('click', async () => {
+  if (!editingSlot) return;
+  if (!confirm('このシフト割り当てを削除しますか？')) return;
+  try {
+    await apiFetch(`/api/assignments/${editingSlot.assignmentId}`, { method: 'DELETE' });
+    closeBoardSlotModal();
+    await loadShifts();
+    showToast('シフトを削除しました');
+  } catch (err) { showToast(err.message, true); }
 });
 $('btn-cancel-board-select').addEventListener('click', () => {
   boardSelectStart = null; boardHoverTime = null;
@@ -671,7 +718,6 @@ $('btn-cancel-board-select').addEventListener('click', () => {
 });
 
 $('btn-board-slot-submit').addEventListener('click', async () => {
-  if (!pendingBoardSlot) return;
   const errEl = $('board-slot-error');
   errEl.classList.add('hidden');
 
@@ -683,6 +729,45 @@ $('btn-board-slot-submit').addEventListener('click', async () => {
     return;
   }
 
+  // ── 編集モード：既存スロットの仕事を差し替え ──────────────────────
+  if (editingSlot) {
+    try {
+      const { slotId, assignmentId, memberId } = editingSlot;
+      // 1. 古い割り当て削除
+      await apiFetch(`/api/assignments/${assignmentId}`, { method: 'DELETE' });
+      // 2. 既存スロット削除
+      await apiFetch(`/api/events/${EVENT_ID}/slots/${slotId}`, { method: 'DELETE' });
+      // 3. 新しい仕事でスロット作成（元の時間帯を slots から取得済み）
+      const oldSlot = slots.find(s => s.id === slotId);
+      const newSlot = await apiFetch(`/api/events/${EVENT_ID}/slots`, {
+        method: 'POST',
+        body: JSON.stringify({
+          date: oldSlot.date,
+          start_time: oldSlot.start_time,
+          end_time: oldSlot.end_time,
+          role: job.title,
+          location: job.location || '',
+          required_count: job.required_count,
+          job_type_id: job.id,
+        }),
+      });
+      // 4. 再割り当て
+      await apiFetch(`/api/events/${EVENT_ID}/slots/${newSlot.id}/assign`, {
+        method: 'POST',
+        body: JSON.stringify({ member_id: memberId }),
+      });
+      closeBoardSlotModal();
+      await loadShifts();
+      showToast('シフトを変更しました');
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.classList.remove('hidden');
+    }
+    return;
+  }
+
+  // ── 新規登録モード ────────────────────────────────────────────────
+  if (!pendingBoardSlot) return;
   try {
     const slot = await apiFetch(`/api/events/${EVENT_ID}/slots`, {
       method: 'POST',
@@ -700,8 +785,7 @@ $('btn-board-slot-submit').addEventListener('click', async () => {
       method: 'POST',
       body: JSON.stringify({ member_id: pendingBoardSlot.memberId }),
     });
-    $('modal-board-slot').classList.add('hidden');
-    pendingBoardSlot = null;
+    closeBoardSlotModal();
     await loadShifts();
     showToast('シフトを登録しました');
   } catch (err) {
@@ -726,6 +810,71 @@ document.querySelectorAll('.interval-btn').forEach(btn => {
 });
 
 // ─── Jobs ────────────────────────────────────────────────────────────────────
+const JOB_PALETTE = [
+  '#4DA3FF', '#FF6B6B', '#48BB78', '#F6AD55', '#9F7AEA',
+  '#4FD1C5', '#F687B3', '#FC8181', '#667EEA', '#38B2AC',
+];
+
+let colorPopupJobId = null;
+
+function closeColorPopup() {
+  document.querySelectorAll('.job-color-popup').forEach(el => el.remove());
+  colorPopupJobId = null;
+}
+
+function openColorPopup(anchorEl, jobId) {
+  closeColorPopup();
+  colorPopupJobId = jobId;
+
+  const popup = document.createElement('div');
+  popup.className = 'job-color-popup absolute z-50 bg-white rounded-xl shadow-xl border border-gray-100 p-3';
+  popup.style.cssText = 'width:176px';
+
+  const job = jobs.find(j => j.id === jobId);
+  popup.innerHTML = `
+    <div class="text-[10px] font-medium text-gray-400 mb-2">カラーを選択</div>
+    <div class="grid grid-cols-5 gap-2">
+      ${JOB_PALETTE.map(c => `
+        <button class="palette-swatch w-7 h-7 rounded-full border-2 transition-transform hover:scale-110 focus:outline-none
+          ${job && job.color === c ? 'border-gray-700 scale-110' : 'border-transparent'}"
+          style="background:${c}" data-color="${c}"></button>
+      `).join('')}
+    </div>
+  `;
+
+  // anchorEl の位置に配置
+  const rect = anchorEl.getBoundingClientRect();
+  const scrollTop = window.scrollY || document.documentElement.scrollTop;
+  popup.style.position = 'fixed';
+  popup.style.top  = `${rect.bottom + 6}px`;
+  popup.style.left = `${rect.left}px`;
+
+  document.body.appendChild(popup);
+
+  popup.querySelectorAll('.palette-swatch').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const color = btn.dataset.color;
+      try {
+        const updated = await apiFetch(`/api/events/${EVENT_ID}/jobs/${jobId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ color }),
+        });
+        const idx = jobs.findIndex(j => j.id === updated.id);
+        if (idx !== -1) jobs[idx] = updated;
+        closeColorPopup();
+        renderJobList();
+        renderShiftBoard();
+        showToast('カラーを変更しました');
+      } catch (err) { showToast(err.message, true); }
+    });
+  });
+
+  // 外クリックで閉じる
+  setTimeout(() => {
+    document.addEventListener('click', closeColorPopup, { once: true });
+  }, 0);
+}
 async function loadJobs() {
   const list = $('job-list');
   try {
@@ -745,17 +894,14 @@ function renderJobList() {
   }
   list.innerHTML = jobs.map(j => `
     <div class="bg-white rounded-xl border border-gray-100 p-4 flex items-start gap-3 group">
-      <div class="relative flex-shrink-0 mt-0.5" title="クリックして色を変更">
-        <div class="w-9 h-9 rounded-lg flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity"
-          style="background:${j.color}20;border:2px solid ${j.color}">
-          <svg class="w-4 h-4" style="color:${j.color}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-          </svg>
-        </div>
-        <input type="color" class="job-color-picker absolute inset-0 opacity-0 w-full h-full cursor-pointer"
-          value="${j.color}" data-jid="${j.id}" title="色を変更">
-      </div>
+      <button class="btn-job-color w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 hover:opacity-80 transition-opacity"
+        style="background:${j.color}28;border:2px solid ${j.color}"
+        data-jid="${j.id}" title="クリックして色を変更">
+        <svg class="w-4 h-4 pointer-events-none" style="color:${j.color}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+        </svg>
+      </button>
       <div class="flex-1 min-w-0">
         <div class="text-sm font-semibold text-gray-900">${j.title}</div>
         ${j.description ? `<div class="text-xs text-gray-500 mt-0.5 leading-relaxed">${j.description}</div>` : ''}
@@ -797,24 +943,10 @@ function renderJobList() {
     });
   });
 
-  list.querySelectorAll('.job-color-picker').forEach(picker => {
-    let debounce = null;
-    picker.addEventListener('input', () => {
-      clearTimeout(debounce);
-      debounce = setTimeout(async () => {
-        try {
-          const updated = await apiFetch(`/api/events/${EVENT_ID}/jobs/${picker.dataset.jid}`, {
-            method: 'PATCH',
-            body: JSON.stringify({ color: picker.value }),
-          });
-          // jobs 配列を更新してボードも再描画
-          const idx = jobs.findIndex(j => j.id === updated.id);
-          if (idx !== -1) jobs[idx] = updated;
-          renderJobList();
-          renderShiftBoard();
-          showToast('カラーを変更しました');
-        } catch (err) { showToast(err.message, true); }
-      }, 400);
+  list.querySelectorAll('.btn-job-color').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openColorPopup(btn, parseInt(btn.dataset.jid));
     });
   });
 }
