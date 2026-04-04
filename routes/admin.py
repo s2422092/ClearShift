@@ -327,6 +327,22 @@ def api_delete_member(event_id, member_id):
     return jsonify({'ok': True})
 
 
+@admin_bp.route('/api/events/<int:event_id>/members/bulk-delete', methods=['POST'])
+@login_required
+def api_bulk_delete_members(event_id):
+    _can_access_event(event_id)
+    data = request.get_json()
+    ids = data.get('ids', [])
+    if not ids:
+        return jsonify({'error': '削除するメンバーを選択してください。'}), 400
+    deleted = EventMember.query.filter(
+        EventMember.id.in_(ids),
+        EventMember.event_id == event_id,
+    ).delete(synchronize_session=False)
+    db.session.commit()
+    return jsonify({'ok': True, 'deleted': deleted})
+
+
 # ── API: Shift Slots ─────────────────────────────────────────────────────────
 
 @admin_bp.route('/api/events/<int:event_id>/slots', methods=['GET'])

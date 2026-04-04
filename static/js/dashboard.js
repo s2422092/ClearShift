@@ -81,60 +81,180 @@ $('form-new-event').addEventListener('submit', async e => {
 });
 
 // ─── Load Members ─────────────────────────────────────────────────────────────
-async function loadMembers() {
+// ─── Member Select Mode ───────────────────────────────────────────────────────
+let selectMode = false;
+let selectedIds = new Set();
+
+function enterSelectMode() {
+  selectMode = true;
+  selectedIds.clear();
+  $('member-normal-actions').classList.add('hidden');
+  $('member-select-actions').classList.remove('hidden');
+  $('member-select-actions').classList.add('flex');
+  renderMemberList();
+}
+
+function exitSelectMode() {
+  selectMode = false;
+  selectedIds.clear();
+  $('member-normal-actions').classList.remove('hidden');
+  $('member-select-actions').classList.add('hidden');
+  $('member-select-actions').classList.remove('flex');
+  renderMemberList();
+}
+
+function updateSelectUI() {
+  $('select-count-label').textContent = `${selectedIds.size}件選択中`;
+  const btn = $('btn-bulk-delete');
+  btn.disabled = selectedIds.size === 0;
+  // 全選択ボタンのラベル切替
+  $('btn-select-all').textContent = selectedIds.size === members.length ? '全解除' : '全選択';
+}
+
+function renderMemberList() {
   const list = $('member-list');
-  try {
-    members = await apiFetch(`/api/events/${EVENT_ID}/members`);
-    if (!members.length) {
-      list.innerHTML = `<div class="text-center py-10 text-gray-400 text-sm">メンバーがいません。追加してください。</div>`;
-      return;
-    }
-    // 局でグループ化
-    const depts = {};
-    members.forEach(m => {
-      const key = m.department || '未分類';
-      (depts[key] = depts[key] || []).push(m);
-    });
-    list.innerHTML = Object.entries(depts).map(([dept, mems]) => `
-      <div class="bg-white rounded-xl border border-gray-100 overflow-hidden mb-3">
-        <div class="px-4 py-2 bg-surface border-b border-gray-100">
-          <span class="text-xs font-semibold text-gray-500">${dept}</span>
-        </div>
-        <div class="divide-y divide-gray-50">
-          ${mems.map(m => `
-            <div class="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 group">
+  if (!members.length) {
+    list.innerHTML = `<div class="text-center py-10 text-gray-400 text-sm">メンバーがいません。追加してください。</div>`;
+    return;
+  }
+
+  const depts = {};
+  members.forEach(m => {
+    const key = m.department || '未分類';
+    (depts[key] = depts[key] || []).push(m);
+  });
+
+  list.innerHTML = Object.entries(depts).map(([dept, mems]) => `
+    <div class="bg-white rounded-xl border border-gray-100 overflow-hidden mb-3">
+      <div class="px-4 py-2 bg-surface border-b border-gray-100 flex items-center gap-2">
+        ${selectMode ? `
+          <input type="checkbox" class="dept-check w-3.5 h-3.5 accent-primary cursor-pointer"
+            data-dept="${dept}" ${mems.every(m => selectedIds.has(m.id)) ? 'checked' : ''} />
+        ` : ''}
+        <span class="text-xs font-semibold text-gray-500">${dept}</span>
+        <span class="text-xs text-gray-400">${mems.length}人</span>
+      </div>
+      <div class="divide-y divide-gray-50">
+        ${mems.map(m => `
+          <div class="member-row flex items-center gap-3 px-4 py-2.5 transition-colors cursor-pointer
+            ${selectMode ? (selectedIds.has(m.id) ? 'bg-primary-light' : 'hover:bg-gray-50') : 'hover:bg-gray-50 group'}"
+            data-id="${m.id}">
+            ${selectMode ? `
+              <input type="checkbox" class="member-check w-4 h-4 accent-primary cursor-pointer flex-shrink-0"
+                data-id="${m.id}" ${selectedIds.has(m.id) ? 'checked' : ''} />
+            ` : `
               <div class="w-7 h-7 rounded-full bg-primary-light flex items-center justify-center flex-shrink-0">
                 <span class="text-xs font-bold text-primary">${m.name[0]}</span>
               </div>
-              <div class="flex-1 min-w-0">
-                <div class="text-sm font-medium text-gray-900">${m.name}</div>
-                <div class="text-xs text-gray-400">${[m.grade, m.email].filter(Boolean).join(' · ')}</div>
+            `}
+            ${!selectMode ? '' : `
+              <div class="w-7 h-7 rounded-full bg-primary-light flex items-center justify-center flex-shrink-0">
+                <span class="text-xs font-bold text-primary">${m.name[0]}</span>
               </div>
+            `}
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-medium text-gray-900">${m.name}</div>
+              <div class="text-xs text-gray-400">${[m.grade, m.email].filter(Boolean).join(' · ')}</div>
+            </div>
+            ${!selectMode ? `
               <button class="btn-del-member text-gray-300 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
                 data-id="${m.id}" title="削除">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                 </svg>
               </button>
-            </div>
-          `).join('')}
-        </div>
+            ` : ''}
+          </div>
+        `).join('')}
       </div>
-    `).join('');
+    </div>
+  `).join('');
 
+  if (selectMode) {
+    // 行クリックで選択トグル
+    list.querySelectorAll('.member-row').forEach(row => {
+      row.addEventListener('click', (e) => {
+        if (e.target.tagName === 'INPUT') return; // チェックボックス直クリックは後述
+        const id = parseInt(row.dataset.id);
+        selectedIds.has(id) ? selectedIds.delete(id) : selectedIds.add(id);
+        renderMemberList();
+        updateSelectUI();
+      });
+    });
+
+    // チェックボックス直接操作
+    list.querySelectorAll('.member-check').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const id = parseInt(cb.dataset.id);
+        cb.checked ? selectedIds.add(id) : selectedIds.delete(id);
+        renderMemberList();
+        updateSelectUI();
+      });
+    });
+
+    // 局単位の全選択チェック
+    list.querySelectorAll('.dept-check').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const dept = cb.dataset.dept;
+        const deptMembers = members.filter(m => (m.department || '未分類') === dept);
+        deptMembers.forEach(m => cb.checked ? selectedIds.add(m.id) : selectedIds.delete(m.id));
+        renderMemberList();
+        updateSelectUI();
+      });
+    });
+
+    updateSelectUI();
+  } else {
+    // 通常モード：個別削除
     list.querySelectorAll('.btn-del-member').forEach(btn => {
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
         if (!confirm('このメンバーを削除しますか？')) return;
         try {
           await apiFetch(`/api/events/${EVENT_ID}/members/${btn.dataset.id}`, { method: 'DELETE' });
-          loadMembers();
+          await loadMembers();
         } catch (err) { showToast(err.message, true); }
       });
     });
+  }
+}
+
+async function loadMembers() {
+  const list = $('member-list');
+  try {
+    members = await apiFetch(`/api/events/${EVENT_ID}/members`);
+    renderMemberList();
   } catch (err) {
     list.innerHTML = `<div class="text-center py-10 text-red-400 text-sm">${err.message}</div>`;
   }
 }
+
+$('btn-select-mode').addEventListener('click', enterSelectMode);
+$('btn-cancel-select').addEventListener('click', exitSelectMode);
+
+$('btn-select-all').addEventListener('click', () => {
+  if (selectedIds.size === members.length) {
+    selectedIds.clear();
+  } else {
+    members.forEach(m => selectedIds.add(m.id));
+  }
+  renderMemberList();
+  updateSelectUI();
+});
+
+$('btn-bulk-delete').addEventListener('click', async () => {
+  const count = selectedIds.size;
+  if (!confirm(`選択した${count}人のメンバーを削除しますか？`)) return;
+  try {
+    const res = await apiFetch(`/api/events/${EVENT_ID}/members/bulk-delete`, {
+      method: 'POST',
+      body: JSON.stringify({ ids: [...selectedIds] }),
+    });
+    showToast(`${res.deleted}人を削除しました`);
+    exitSelectMode();
+    await loadMembers();
+  } catch (err) { showToast(err.message, true); }
+});
 
 // ─── Add Member Modal ─────────────────────────────────────────────────────────
 const modalMember = $('modal-add-member');
