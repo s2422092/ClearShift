@@ -510,21 +510,22 @@ function renderShiftBoard() {
         data-member="${m.id}" data-time="${col}"></td>`;
     }).join('');
 
+    const meta = [m.grade, m.department].filter(Boolean).join('　');
     return `<tr>
-      <td class="sticky left-0 z-10 bg-white border-r border-b border-gray-100 px-3 py-1 whitespace-nowrap select-none" style="min-width:120px">
+      <td class="sticky left-0 z-10 bg-white border-r border-b border-gray-100 px-3 py-1.5 whitespace-nowrap select-none" style="min-width:160px">
         <div class="text-xs font-semibold text-gray-800">${m.name}</div>
-        ${m.department ? `<div class="text-[10px] text-gray-400">${m.department}</div>` : ''}
+        ${meta ? `<div class="text-[10px] text-gray-400 mt-0.5">${meta}</div>` : ''}
       </td>
       ${cellsHtml}
     </tr>`;
   }).join('');
 
-  const totalW = 120 + cols.length * cw;
+  const totalW = 160 + cols.length * cw;
   board.innerHTML = `
     <table class="border-collapse" style="width:${totalW}px">
       <thead>
         <tr>
-          <th rowspan="2" style="min-width:120px;top:0"
+          <th rowspan="2" style="min-width:160px;top:0"
             class="sticky left-0 z-30 bg-white border-r border-b-2 border-b-gray-200 border-gray-100 px-3 text-left text-xs text-gray-500 font-medium select-none">
             メンバー
           </th>
@@ -643,6 +644,18 @@ function closeBoardSlotModal() {
   $('modal-board-slot').classList.add('hidden');
   pendingBoardSlot = null;
   editingSlot = null;
+  showBoardSlotMain();
+}
+
+function showBoardSlotMain() {
+  $('board-slot-main').classList.remove('hidden');
+  $('board-slot-delete-confirm').classList.add('hidden');
+}
+
+function showBoardSlotDeleteConfirm(desc) {
+  $('board-slot-delete-desc').textContent = desc;
+  $('board-slot-main').classList.add('hidden');
+  $('board-slot-delete-confirm').classList.remove('hidden');
 }
 
 // 共通：仕事ドロップダウンを更新し、選択済みの job をハイライト
@@ -702,9 +715,18 @@ function openOccupiedCellMenu(slotId, assignmentId) {
 $('btn-board-slot-cancel').addEventListener('click', closeBoardSlotModal);
 $('board-slot-overlay').addEventListener('click', closeBoardSlotModal);
 
-$('btn-board-slot-delete').addEventListener('click', async () => {
+$('btn-board-slot-delete').addEventListener('click', () => {
   if (!editingSlot) return;
-  if (!confirm('このシフト割り当てを削除しますか？')) return;
+  const slot = slots.find(s => s.id === editingSlot.slotId);
+  const member = members.find(m => m.id === editingSlot.memberId);
+  const desc = `${member?.name || ''} / ${slot?.start_time || ''} 〜 ${slot?.end_time || ''}`;
+  showBoardSlotDeleteConfirm(desc);
+});
+
+$('btn-delete-cancel').addEventListener('click', showBoardSlotMain);
+
+$('btn-delete-confirm').addEventListener('click', async () => {
+  if (!editingSlot) return;
   try {
     await apiFetch(`/api/assignments/${editingSlot.assignmentId}`, { method: 'DELETE' });
     closeBoardSlotModal();
