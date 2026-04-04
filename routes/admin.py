@@ -413,8 +413,10 @@ def api_create_slot(event_id):
     except (KeyError, ValueError):
         return jsonify({'error': '日付・時間の形式が正しくありません。'}), 400
 
+    job_type_id = data.get('job_type_id')
     slot = ShiftSlot(
         event_id=event_id,
+        job_type_id=int(job_type_id) if job_type_id else None,
         date=slot_date,
         start_time=start_time,
         end_time=end_time,
@@ -440,6 +442,22 @@ def api_delete_slot(event_id, slot_id):
 
 # ── API: Jobs ────────────────────────────────────────────────────────────────
 
+JOB_COLOR_PALETTE = [
+    '#4DA3FF', '#FF6B6B', '#48BB78', '#F6AD55', '#9F7AEA',
+    '#4FD1C5', '#F687B3', '#ED8936', '#667EEA', '#38B2AC',
+    '#FC8181', '#68D391', '#76E4F7', '#FBD38D', '#B794F4',
+]
+
+
+def _pick_job_color(event_id):
+    used = {j.color for j in JobType.query.filter_by(event_id=event_id).all()}
+    for color in JOB_COLOR_PALETTE:
+        if color not in used:
+            return color
+    # 全色使用済みの場合は先頭から再利用
+    return JOB_COLOR_PALETTE[0]
+
+
 @admin_bp.route('/api/events/<int:event_id>/jobs', methods=['GET'])
 @login_required
 def api_jobs(event_id):
@@ -456,16 +474,33 @@ def api_create_job(event_id):
     title = (data.get('title') or '').strip()
     if not title:
         return jsonify({'error': '仕事タイトルを入力してください。'}), 400
+    color = _pick_job_color(event_id)
     job = JobType(
         event_id=event_id,
         title=title,
         description=(data.get('description') or '').strip() or None,
         location=(data.get('location') or '').strip() or None,
         required_count=int(data.get('required_count') or 1),
+        color=color,
     )
     db.session.add(job)
     db.session.commit()
     return jsonify(job.to_dict()), 201
+
+
+@admin_bp.route('/api/events/<int:event_id>/jobs/<int:job_id>', methods=['PATCH'])
+@login_required
+def api_update_job(event_id, job_id):
+    _can_access_event(event_id)
+    job = JobType.query.filter_by(id=job_id, event_id=event_id).first_or_404()
+    data = request.get_json()
+    if 'color' in data:
+        color = (data['color'] or '').strip()
+        if not color.startswith('#') or len(color) not in (4, 7):
+            return jsonify({'error': '無効なカラーコードです。'}), 400
+        job.color = color
+    db.session.commit()
+    return jsonify(job.to_dict())
 
 
 @admin_bp.route('/api/events/<int:event_id>/jobs/<int:job_id>', methods=['DELETE'])

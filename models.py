@@ -103,6 +103,7 @@ class ShiftSlot(db.Model):
     __tablename__ = 'shift_slots'
     id = db.Column(db.Integer, primary_key=True)
     event_id = db.Column(db.Integer, db.ForeignKey('events.id'), nullable=False)
+    job_type_id = db.Column(db.Integer, db.ForeignKey('job_types.id', ondelete='SET NULL'), nullable=True)
     date = db.Column(db.Date, nullable=False)
     start_time = db.Column(db.Time, nullable=False)
     end_time = db.Column(db.Time, nullable=False)
@@ -118,6 +119,7 @@ class ShiftSlot(db.Model):
         return {
             'id': self.id,
             'event_id': self.event_id,
+            'job_type_id': self.job_type_id,
             'date': self.date.isoformat(),
             'start_time': self.start_time.strftime('%H:%M'),
             'end_time': self.end_time.strftime('%H:%M'),
@@ -160,6 +162,7 @@ class JobType(db.Model):
     description = db.Column(db.Text)
     location = db.Column(db.String(200))
     required_count = db.Column(db.Integer, default=1)
+    color = db.Column(db.String(7), nullable=False, default='#4DA3FF')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
@@ -170,6 +173,7 @@ class JobType(db.Model):
             'description': self.description,
             'location': self.location,
             'required_count': self.required_count,
+            'color': self.color,
         }
 
 

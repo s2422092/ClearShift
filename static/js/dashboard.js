@@ -344,10 +344,25 @@ function generateEventDates(startIso, endIso) {
   while (cur <= end) { dates.push(cur.toISOString().split('T')[0]); cur.setDate(cur.getDate() + 1); }
   return dates;
 }
-function slotColor(status) {
-  return status === 'absent' ? 'rgba(239,68,68,0.2)' :
-         status === 'late'   ? 'rgba(234,179,8,0.2)' :
-                               'rgba(77,163,255,0.22)';
+// hex '#RRGGBB' → rgba with alpha
+function hexToRgba(hex, alpha) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function slotColor(jobColor, status) {
+  const base = jobColor || '#4DA3FF';
+  if (status === 'absent') return hexToRgba('#EF4444', 0.28);
+  if (status === 'late')   return hexToRgba('#EAB308', 0.28);
+  return hexToRgba(base, 0.3);
+}
+
+function jobColorFromSlot(slot) {
+  const job = jobs.find(j => j.id === slot.job_type_id);
+  return job ? job.color : '#4DA3FF';
 }
 
 async function loadShifts() {
@@ -402,6 +417,7 @@ function renderShiftBoard() {
   daySlots.forEach(slot => {
     const startM = timeToMin(slot.start_time);
     const endM   = timeToMin(slot.end_time);
+    const jobColor = jobColorFromSlot(slot);
     slot.assignments.forEach(a => {
       cols.forEach((col, i) => {
         const colM = timeToMin(col);
@@ -411,6 +427,7 @@ function renderShiftBoard() {
             slotId: slot.id, role: slot.role,
             assignmentId: a.id, status: a.status,
             isFirst: prevM < startM,
+            jobColor,
           });
         }
       });
@@ -477,11 +494,12 @@ function renderShiftBoard() {
       const cb = colBorder(col);
 
       if (cell) {
-        const bg = slotColor(cell.status);
+        const bg = slotColor(cell.jobColor, cell.status);
+        const border = cell.isFirst ? `border-left: 3px solid ${cell.jobColor};` : '';
         const roleText = cell.isFirst && cell.role
           ? `<span class="absolute inset-0 flex items-center px-1 text-[9px] font-semibold text-primary/80 overflow-hidden whitespace-nowrap pointer-events-none">${cell.role}</span>`
           : '';
-        return `<td style="min-width:${cw}px;width:${cw}px;background:${bg}"
+        return `<td style="min-width:${cw}px;width:${cw}px;background:${bg};${border}"
           class="board-cell-occupied relative h-9 cursor-pointer border-b border-b-white/30 ${cb}"
           data-slot="${cell.slotId}" data-aid="${cell.assignmentId}" data-member="${m.id}" data-time="${col}">${roleText}</td>`;
       }
@@ -675,6 +693,7 @@ $('btn-board-slot-submit').addEventListener('click', async () => {
         role: job.title,
         location: job.location || '',
         required_count: job.required_count,
+        job_type_id: job.id,
       }),
     });
     await apiFetch(`/api/events/${EVENT_ID}/slots/${slot.id}/assign`, {
@@ -726,11 +745,16 @@ function renderJobList() {
   }
   list.innerHTML = jobs.map(j => `
     <div class="bg-white rounded-xl border border-gray-100 p-4 flex items-start gap-3 group">
-      <div class="w-9 h-9 rounded-lg bg-primary-light flex items-center justify-center flex-shrink-0 mt-0.5">
-        <svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-            d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-        </svg>
+      <div class="relative flex-shrink-0 mt-0.5" title="クリックして色を変更">
+        <div class="w-9 h-9 rounded-lg flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity"
+          style="background:${j.color}20;border:2px solid ${j.color}">
+          <svg class="w-4 h-4" style="color:${j.color}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+          </svg>
+        </div>
+        <input type="color" class="job-color-picker absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+          value="${j.color}" data-jid="${j.id}" title="色を変更">
       </div>
       <div class="flex-1 min-w-0">
         <div class="text-sm font-semibold text-gray-900">${j.title}</div>
@@ -770,6 +794,27 @@ function renderJobList() {
         await loadJobs();
         showToast('仕事を削除しました');
       } catch (err) { showToast(err.message, true); }
+    });
+  });
+
+  list.querySelectorAll('.job-color-picker').forEach(picker => {
+    let debounce = null;
+    picker.addEventListener('input', () => {
+      clearTimeout(debounce);
+      debounce = setTimeout(async () => {
+        try {
+          const updated = await apiFetch(`/api/events/${EVENT_ID}/jobs/${picker.dataset.jid}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ color: picker.value }),
+          });
+          // jobs 配列を更新してボードも再描画
+          const idx = jobs.findIndex(j => j.id === updated.id);
+          if (idx !== -1) jobs[idx] = updated;
+          renderJobList();
+          renderShiftBoard();
+          showToast('カラーを変更しました');
+        } catch (err) { showToast(err.message, true); }
+      }, 400);
     });
   });
 }

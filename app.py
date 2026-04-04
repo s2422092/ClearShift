@@ -73,9 +73,18 @@ def create_app():
     def shutdown_session(exception=None):
         db.session.remove()
 
-    # テーブルの自動作成
+    # テーブルの自動作成 + カラム追加マイグレーション
     with app.app_context():
         db.create_all()
+        from sqlalchemy import text
+        with db.engine.connect() as conn:
+            conn.execute(text(
+                "ALTER TABLE job_types ADD COLUMN IF NOT EXISTS color VARCHAR(7) NOT NULL DEFAULT '#4DA3FF'"
+            ))
+            conn.execute(text(
+                "ALTER TABLE shift_slots ADD COLUMN IF NOT EXISTS job_type_id INTEGER REFERENCES job_types(id) ON DELETE SET NULL"
+            ))
+            conn.commit()
 
     return app
 
