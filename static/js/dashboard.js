@@ -111,6 +111,13 @@ function updateSelectUI() {
   $('btn-select-all').textContent = selectedIds.size === members.length ? '全解除' : '全選択';
 }
 
+// 学年文字列から数値を抽出（ソート用）
+function gradeNum(grade) {
+  if (!grade) return 0;
+  const m = grade.match(/\d+/);
+  return m ? parseInt(m[0]) : 0;
+}
+
 function renderMemberList() {
   const list = $('member-list');
   if (!members.length) {
@@ -118,11 +125,14 @@ function renderMemberList() {
     return;
   }
 
+  // 局でグループ化（学年降順でソート）
   const depts = {};
-  members.forEach(m => {
-    const key = m.department || '未分類';
-    (depts[key] = depts[key] || []).push(m);
-  });
+  [...members]
+    .sort((a, b) => gradeNum(b.grade) - gradeNum(a.grade))
+    .forEach(m => {
+      const key = m.department || '未分類';
+      (depts[key] = depts[key] || []).push(m);
+    });
 
   list.innerHTML = Object.entries(depts).map(([dept, mems]) => `
     <div class="bg-white rounded-xl border border-gray-100 overflow-hidden mb-3">
@@ -136,25 +146,31 @@ function renderMemberList() {
       </div>
       <div class="divide-y divide-gray-50">
         ${mems.map(m => `
-          <div class="member-row flex items-center gap-3 px-4 py-2.5 transition-colors cursor-pointer
-            ${selectMode ? (selectedIds.has(m.id) ? 'bg-primary-light' : 'hover:bg-gray-50') : 'hover:bg-gray-50 group'}"
+          <div class="member-row flex items-center gap-3 px-4 py-2.5 transition-colors
+            ${selectMode ? `cursor-pointer ${selectedIds.has(m.id) ? 'bg-primary-light' : 'hover:bg-gray-50'}` : 'hover:bg-gray-50 group'}"
             data-id="${m.id}">
             ${selectMode ? `
               <input type="checkbox" class="member-check w-4 h-4 accent-primary cursor-pointer flex-shrink-0"
                 data-id="${m.id}" ${selectedIds.has(m.id) ? 'checked' : ''} />
-            ` : `
-              <div class="w-7 h-7 rounded-full bg-primary-light flex items-center justify-center flex-shrink-0">
-                <span class="text-xs font-bold text-primary">${m.name[0]}</span>
-              </div>
-            `}
-            ${!selectMode ? '' : `
-              <div class="w-7 h-7 rounded-full bg-primary-light flex items-center justify-center flex-shrink-0">
-                <span class="text-xs font-bold text-primary">${m.name[0]}</span>
-              </div>
-            `}
+            ` : ''}
+            <button class="btn-member-detail w-7 h-7 rounded-full bg-primary-light flex items-center justify-center flex-shrink-0
+              hover:ring-2 hover:ring-primary/40 transition-all"
+              data-id="${m.id}" title="詳細を見る">
+              <span class="text-xs font-bold text-primary pointer-events-none">${m.name[0]}</span>
+            </button>
             <div class="flex-1 min-w-0">
               <div class="text-sm font-medium text-gray-900">${m.name}</div>
-              <div class="text-xs text-gray-400">${[m.grade, m.email].filter(Boolean).join(' · ')}</div>
+              <div class="flex items-center gap-2 flex-wrap">
+                ${m.grade ? `<span class="text-xs text-gray-400">${m.grade}</span>` : ''}
+                ${m.email ? `
+                  <span class="flex items-center gap-1 text-xs text-gray-400 min-w-0">
+                    <svg class="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                    </svg>
+                    <span class="truncate">${m.email}</span>
+                  </span>
+                ` : ''}
+              </div>
             </div>
             ${!selectMode ? `
               <button class="btn-del-member text-gray-300 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
@@ -217,6 +233,14 @@ function renderMemberList() {
       });
     });
   }
+
+  // アイコンクリック → メンバー詳細（通常・選択モード共通）
+  list.querySelectorAll('.btn-member-detail').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openMemberDetail(parseInt(btn.dataset.id));
+    });
+  });
 }
 
 async function loadMembers() {
@@ -625,6 +649,53 @@ $('btn-delete-event').addEventListener('click', async () => {
     window.location.href = '/dashboard';
   } catch (err) { showToast(err.message, true); }
 });
+
+// ─── Member Detail Modal ──────────────────────────────────────────────────────
+const modalMemberDetail = $('modal-member-detail');
+document.querySelectorAll('.member-detail-close').forEach(b =>
+  b.addEventListener('click', () => modalMemberDetail.classList.add('hidden'))
+);
+
+function openMemberDetail(memberId) {
+  const m = members.find(x => x.id === memberId);
+  if (!m) return;
+
+  // シフト担当回数を集計
+  let shiftCount = 0;
+  slots.forEach(s => {
+    if (s.assignments.some(a => a.member_id === memberId)) shiftCount++;
+  });
+
+  const infoRows = [
+    { label: '学年',         value: m.grade || '未設定', isEmail: false },
+    { label: '局・グループ', value: m.department || '未設定', isEmail: false },
+    { label: 'Gmail',        value: m.email || '未設定', isEmail: !!m.email },
+    { label: 'シフト担当数', value: `${shiftCount}回`, isEmail: false },
+  ];
+
+  $('member-detail-body').innerHTML = `
+    <div class="flex flex-col items-center mb-5">
+      <div class="w-14 h-14 rounded-full bg-primary-light flex items-center justify-center mb-3">
+        <span class="text-2xl font-bold text-primary">${m.name[0]}</span>
+      </div>
+      <div class="text-base font-bold text-gray-900">${m.name}</div>
+      ${m.department ? `<div class="text-xs text-gray-400 mt-0.5">${m.department}${m.grade ? ' · ' + m.grade : ''}</div>` : ''}
+    </div>
+    <div class="space-y-2">
+      ${infoRows.map(f => `
+        <div class="flex items-center justify-between px-3 py-2 bg-surface rounded-lg gap-3">
+          <span class="text-xs text-gray-500 flex-shrink-0">${f.label}</span>
+          ${f.isEmail
+            ? `<a href="mailto:${f.value}" class="text-sm font-medium text-primary hover:underline truncate">${f.value}</a>`
+            : `<span class="text-sm font-medium text-gray-800 truncate">${f.value}</span>`
+          }
+        </div>
+      `).join('')}
+    </div>
+  `;
+
+  modalMemberDetail.classList.remove('hidden');
+}
 
 // ─── Copy URL ─────────────────────────────────────────────────────────────────
 $('btn-copy-url').addEventListener('click', () => {

@@ -429,6 +429,22 @@
   </div>
 </div>
 
+<!-- メンバー詳細モーダル -->
+<div id="modal-member-detail" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-black/40 backdrop-blur-sm member-detail-close"></div>
+  <div class="relative bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+    <div class="flex items-center justify-between mb-5">
+      <h3 class="text-base font-bold text-gray-900">メンバー詳細</h3>
+      <button class="member-detail-close text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div id="member-detail-body"></div>
+  </div>
+</div>
+
 <!-- 編集者一覧モーダル -->
 <div id="modal-editors" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
   <div class="absolute inset-0 bg-black/40 backdrop-blur-sm editors-modal-close"></div>
