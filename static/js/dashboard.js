@@ -120,6 +120,10 @@ function gradeNum(grade) {
   return m ? parseInt(m[0]) : 0;
 }
 
+// グループの開閉状態を保持（dept名 → true=折りたたみ中）
+const collapsedDepts = new Set();
+const COLLAPSE_THRESHOLD = 10;
+
 function renderMemberList() {
   const list = $('member-list');
   if (!members.length) {
@@ -136,19 +140,42 @@ function renderMemberList() {
       (depts[key] = depts[key] || []).push(m);
     });
 
-  list.innerHTML = Object.entries(depts).map(([dept, mems]) => `
-    <div class="bg-white rounded-xl border border-gray-100 overflow-hidden mb-3">
-      <div class="px-4 py-2 bg-surface border-b border-gray-100 flex items-center gap-2">
+  // 初回ロード時：10人以上のグループをデフォルトで折りたたむ
+  Object.entries(depts).forEach(([dept, mems]) => {
+    if (!collapsedDepts.has('__init__' + dept)) {
+      collapsedDepts.add('__init__' + dept);
+      if (mems.length >= COLLAPSE_THRESHOLD) collapsedDepts.add(dept);
+    }
+  });
+
+  list.innerHTML = Object.entries(depts).map(([dept, mems]) => {
+    const collapsed = collapsedDepts.has(dept);
+    const allSelected = mems.every(m => selectedIds.has(m.id));
+    const someSelected = mems.some(m => selectedIds.has(m.id));
+
+    return `
+    <div class="mb-3 rounded-xl overflow-hidden border-2 border-gray-200 shadow-sm">
+      <!-- グループヘッダー -->
+      <button class="dept-header w-full flex items-center gap-2.5 px-4 py-2.5 bg-gray-100 hover:bg-gray-150 transition-colors text-left"
+        data-dept="${dept}">
         ${selectMode ? `
-          <input type="checkbox" class="dept-check w-3.5 h-3.5 accent-primary cursor-pointer"
-            data-dept="${dept}" ${mems.every(m => selectedIds.has(m.id)) ? 'checked' : ''} />
+          <input type="checkbox" class="dept-check w-3.5 h-3.5 accent-primary cursor-pointer flex-shrink-0"
+            data-dept="${dept}"
+            ${allSelected ? 'checked' : ''}
+            ${someSelected && !allSelected ? 'indeterminate-marker' : ''} />
         ` : ''}
-        <span class="text-xs font-semibold text-gray-500">${dept}</span>
-        <span class="text-xs text-gray-400">${mems.length}人</span>
-      </div>
-      <div class="divide-y divide-gray-50">
+        <!-- 折りたたみ矢印 -->
+        <svg class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 transition-transform ${collapsed ? '' : 'rotate-90'}"
+          fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
+        </svg>
+        <span class="text-xs font-bold text-gray-700 flex-1">${dept}</span>
+        <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-white text-gray-500 border border-gray-200">${mems.length}人</span>
+      </button>
+      <!-- メンバーリスト -->
+      <div class="dept-body divide-y divide-gray-100 ${collapsed ? 'hidden' : ''}">
         ${mems.map(m => `
-          <div class="member-row flex items-center gap-3 px-4 py-2.5 transition-colors
+          <div class="member-row flex items-center gap-3 px-4 py-2.5 bg-white transition-colors
             ${selectMode ? `cursor-pointer ${selectedIds.has(m.id) ? 'bg-primary-light' : 'hover:bg-gray-50'}` : 'hover:bg-gray-50 group'}"
             data-id="${m.id}">
             ${selectMode ? `
@@ -185,8 +212,22 @@ function renderMemberList() {
           </div>
         `).join('')}
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
+
+  // グループヘッダークリックで開閉トグル
+  list.querySelectorAll('.dept-header').forEach(header => {
+    header.addEventListener('click', (e) => {
+      if (e.target.classList.contains('dept-check')) return;
+      const dept = header.dataset.dept;
+      if (collapsedDepts.has(dept)) {
+        collapsedDepts.delete(dept);
+      } else {
+        collapsedDepts.add(dept);
+      }
+      renderMemberList();
+    });
+  });
 
   if (selectMode) {
     // 行クリックで選択トグル
