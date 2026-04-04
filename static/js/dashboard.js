@@ -438,18 +438,8 @@ function renderShiftBoard() {
           data-slot="${cell.slotId}" data-aid="${cell.assignmentId}" data-member="${m.id}" data-time="${col}">${roleText}</td>`;
       }
 
-      let extra = '';
-      if (boardSelectStart?.memberId === m.id) {
-        const startM = timeToMin(boardSelectStart.timeStr);
-        const colM   = timeToMin(col);
-        const endRef = boardHoverTime ? timeToMin(boardHoverTime) : startM;
-        const lo = Math.min(startM, endRef), hi = Math.max(startM, endRef);
-        if (colM === startM) extra = 'bg-primary/40';
-        else if (colM > lo && colM <= hi) extra = 'bg-primary/20';
-      }
-
       return `<td style="min-width:${cw}px;width:${cw}px"
-        class="board-cell border border-gray-50 h-9 cursor-pointer transition-colors ${extra || 'hover:bg-primary/10'}"
+        class="board-cell border border-gray-50 h-9 cursor-pointer transition-colors hover:bg-primary/10"
         data-member="${m.id}" data-time="${col}"></td>`;
     }).join('');
 
@@ -481,10 +471,12 @@ function renderShiftBoard() {
     cell.addEventListener('mouseenter', () => {
       if (boardSelectStart && boardSelectStart.memberId === parseInt(cell.dataset.member)) {
         boardHoverTime = cell.dataset.time;
-        renderShiftBoard();
+        updateBoardHighlight();
       }
     });
   });
+
+  updateBoardHighlight();
 
   board.querySelectorAll('.board-cell-occupied').forEach(cell => {
     cell.addEventListener('click', () => openOccupiedCellMenu(parseInt(cell.dataset.slot), parseInt(cell.dataset.aid)));
@@ -495,20 +487,23 @@ function handleBoardCellClick(memberId, timeStr, cols) {
   if (!boardSelectStart) {
     boardSelectStart = { memberId, timeStr };
     boardHoverTime = timeStr;
-    updateBoardHint(); renderDayTabs(); renderShiftBoard();
+    updateBoardHint();
+    updateBoardHighlight();
     return;
   }
   if (boardSelectStart.memberId !== memberId) {
     boardSelectStart = { memberId, timeStr };
     boardHoverTime = timeStr;
-    updateBoardHint(); renderShiftBoard();
+    updateBoardHint();
+    updateBoardHighlight();
     return;
   }
   const startIdx = cols.indexOf(boardSelectStart.timeStr);
   const endIdx   = cols.indexOf(timeStr);
   if (startIdx === endIdx) {
     boardSelectStart = null; boardHoverTime = null;
-    updateBoardHint(); renderShiftBoard();
+    updateBoardHint();
+    updateBoardHighlight();
     return;
   }
   const lo = Math.min(startIdx, endIdx), hi = Math.max(startIdx, endIdx);
@@ -516,7 +511,29 @@ function handleBoardCellClick(memberId, timeStr, cols) {
   const endTime   = minToTime(timeToMin(cols[hi]) + intervalMin);
   boardSelectStart = null; boardHoverTime = null;
   updateBoardHint();
+  updateBoardHighlight();
   openBoardSlotModal(memberId, startTime, endTime);
+}
+
+function updateBoardHighlight() {
+  document.querySelectorAll('.board-cell').forEach(cell => {
+    const memberId = parseInt(cell.dataset.member);
+    if (!boardSelectStart || memberId !== boardSelectStart.memberId) {
+      cell.style.backgroundColor = '';
+      return;
+    }
+    const startM = timeToMin(boardSelectStart.timeStr);
+    const endM   = boardHoverTime ? timeToMin(boardHoverTime) : startM;
+    const lo = Math.min(startM, endM), hi = Math.max(startM, endM);
+    const colM = timeToMin(cell.dataset.time);
+    if (colM === startM) {
+      cell.style.backgroundColor = 'rgba(77,163,255,0.45)';
+    } else if (colM > lo && colM <= hi) {
+      cell.style.backgroundColor = 'rgba(77,163,255,0.22)';
+    } else {
+      cell.style.backgroundColor = '';
+    }
+  });
 }
 
 function updateBoardHint() {
@@ -542,7 +559,6 @@ function openBoardSlotModal(memberId, startTime, endTime) {
   $('board-slot-count').value = '1';
   $('board-slot-error').classList.add('hidden');
   $('modal-board-slot').classList.remove('hidden');
-  renderShiftBoard();
 }
 
 function openOccupiedCellMenu(slotId, assignmentId) {
@@ -562,7 +578,7 @@ $('board-slot-overlay').addEventListener('click', () => {
 });
 $('btn-cancel-board-select').addEventListener('click', () => {
   boardSelectStart = null; boardHoverTime = null;
-  updateBoardHint(); renderShiftBoard();
+  updateBoardHint(); updateBoardHighlight();
 });
 
 $('btn-board-slot-submit').addEventListener('click', async () => {
