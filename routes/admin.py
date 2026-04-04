@@ -85,7 +85,22 @@ def api_editors(event_id):
 def api_csv_template():
     output = io.StringIO()
     writer = csv.writer(output)
+    # 説明コメント行（# で始まる行は読み込み時に自動スキップ）
+    writer.writerow(['# ClearShift メンバーCSVテンプレート'])
+    writer.writerow(['# '])
+    writer.writerow(['# 【CSVファイルの形式】'])
+    writer.writerow(['# A列（必須）', 'B列', 'C列', 'D列'])
+    writer.writerow(['# 名前', 'メールアドレス', '学年', '局・グループ'])
+    writer.writerow(['# '])
+    writer.writerow(['# ・列の順番は自動で認識します（どの順でもOK）'])
+    writer.writerow(['# ・学年は「2」でも「2年」でも可'])
+    writer.writerow(['# ・UTF-8 / Shift_JIS どちらも対応'])
+    writer.writerow(['# ・この「#」で始まる行は読み込み時に無視されます'])
+    writer.writerow(['# '])
+    writer.writerow(['# ↓ここからデータを入力してください（この行は削除してOK）'])
+    # ヘッダー行
     writer.writerow(['名前', 'メールアドレス', '学年', '局・グループ'])
+    # サンプルデータ
     writer.writerow(['山田太郎', 'yamada@gmail.com', '2年', '広報局'])
     writer.writerow(['鈴木花子', 'suzuki@gmail.com', '1', '技術局'])
     content = '\ufeff' + output.getvalue()  # BOM付きUTF-8（Excelで文字化けしない）
@@ -258,9 +273,10 @@ def api_import_members_csv(event_id):
     if not all_rows:
         return jsonify({'ok': True, 'added': 0, 'skipped': 0, 'errors': []})
 
-    # ── ① 空行を除外しつつ元インデックスを保持 ──
+    # ── ① 空行・コメント行（#始まり）を除外しつつ元インデックスを保持 ──
     non_empty = [(i, row) for i, row in enumerate(all_rows)
-                 if any(cell.strip() for cell in row)]
+                 if any(cell.strip() for cell in row)
+                 and not next((c.strip() for c in row if c.strip()), '').startswith('#')]
 
     if not non_empty:
         return jsonify({'ok': True, 'added': 0, 'skipped': 0, 'errors': []})
