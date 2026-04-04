@@ -5,6 +5,7 @@
 // ─── State ───────────────────────────────────────────────────────────────────
 let members = [];
 let slots = [];
+let jobs = [];
 let currentSlotId = null;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -49,6 +50,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 
     if (tabId === 'members') loadMembers();
     if (tabId === 'shift') loadShifts();
+    if (tabId === 'jobs') loadJobs();
   });
 });
 
@@ -350,9 +352,10 @@ function slotColor(status) {
 
 async function loadShifts() {
   try {
-    [slots, members] = await Promise.all([
+    [slots, members, jobs] = await Promise.all([
       apiFetch(`/api/events/${EVENT_ID}/slots`),
       apiFetch(`/api/events/${EVENT_ID}/members`),
+      apiFetch(`/api/events/${EVENT_ID}/jobs`),
     ]);
     eventDates = generateEventDates(EVENT_START, EVENT_END);
     if (!currentDay || !eventDates.includes(currentDay)) currentDay = eventDates[0] || null;
@@ -416,30 +419,75 @@ function renderShiftBoard() {
 
   const sortedMembers = [...members].sort((a, b) => gradeNum(b.grade) - gradeNum(a.grade));
 
-  const headerHtml = cols.map(col => {
-    const [, m] = col.split(':').map(Number);
-    const label = m === 0 ? col : (intervalMin <= 30 && m === 30 ? ':30' : (intervalMin <= 15 ? '·' : ''));
-    return `<th style="min-width:${cw}px;width:${cw}px" class="border-b border-gray-100 py-1.5 text-center text-[10px] text-gray-400 font-normal select-none sticky top-0 bg-white z-10">${label}</th>`;
+  // 時間グループ（1段目ヘッダー用）
+  const hourGroups = [];
+  cols.forEach(col => {
+    const h = parseInt(col.split(':')[0]);
+    const last = hourGroups[hourGroups.length - 1];
+    if (!last || last.hour !== h) hourGroups.push({ hour: h, count: 1 });
+    else last.count++;
+  });
+
+  // 列の「太さ」を返す: 時境界=太、半時=中、15分=細、その他=なし
+  function colBorder(col) {
+    const m = parseInt(col.split(':')[1]);
+    if (m === 0)  return 'border-l-2 border-l-gray-300';
+    if (m === 30) return 'border-l border-l-gray-200';
+    if ((m === 15 || m === 45) && intervalMin <= 15) return 'border-l border-l-gray-100';
+    return '';
+  }
+
+  // 2段目ヘッダーの分ラベル
+  function minuteLabel(col) {
+    const m = parseInt(col.split(':')[1]);
+    if (m === 0) return '00';
+    if (intervalMin >= 30) return '30';
+    if (intervalMin === 15) return String(m).padStart(2, '0');
+    if (intervalMin === 10) return String(m).padStart(2, '0');
+    // 5分: 15分刻みのみ表示
+    return m % 15 === 0 ? String(m).padStart(2, '0') : '';
+  }
+
+  // 1段目: 時間グループ (top-0 sticky)
+  const topRowHtml = hourGroups.map(g =>
+    `<th colspan="${g.count}" style="min-width:${cw * g.count}px"
+      class="sticky top-0 z-10 bg-white border-b-2 border-b-gray-200 border-l-2 border-l-gray-300 py-1.5 text-center text-[11px] font-bold text-gray-700 select-none">
+      ${g.hour}<span class="font-normal text-gray-400">:00</span>
+    </th>`
+  ).join('');
+
+  // 2段目: 分ラベル (top-[29px] sticky)
+  const ROW1_H = 29;
+  const bottomRowHtml = cols.map(col => {
+    const m = parseInt(col.split(':')[1]);
+    const label = minuteLabel(col);
+    const isHour = m === 0;
+    const isHalf = m === 30;
+    const textCls = isHour ? 'text-gray-500 font-semibold' : isHalf ? 'text-gray-500' : 'text-gray-400';
+    return `<th style="min-width:${cw}px;width:${cw}px;top:${ROW1_H}px"
+      class="sticky z-10 bg-gray-50 border-b border-gray-200 py-1 text-center text-[9px] select-none ${colBorder(col)} ${textCls}">
+      ${label}
+    </th>`;
   }).join('');
 
   const rowsHtml = sortedMembers.map(m => {
     const cellsHtml = cols.map(col => {
       const key = `${m.id}|${col}`;
       const cell = cellMap.get(key);
+      const cb = colBorder(col);
 
       if (cell) {
         const bg = slotColor(cell.status);
-        const borderLeft = cell.isFirst ? 'border-l-2' : '';
         const roleText = cell.isFirst && cell.role
           ? `<span class="absolute inset-0 flex items-center px-1 text-[9px] font-semibold text-primary/80 overflow-hidden whitespace-nowrap pointer-events-none">${cell.role}</span>`
           : '';
         return `<td style="min-width:${cw}px;width:${cw}px;background:${bg}"
-          class="board-cell-occupied relative border border-white/60 h-9 cursor-pointer ${borderLeft} border-l-primary/50"
+          class="board-cell-occupied relative h-9 cursor-pointer border-b border-b-white/30 ${cb}"
           data-slot="${cell.slotId}" data-aid="${cell.assignmentId}" data-member="${m.id}" data-time="${col}">${roleText}</td>`;
       }
 
       return `<td style="min-width:${cw}px;width:${cw}px"
-        class="board-cell border border-gray-50 h-9 cursor-pointer transition-colors hover:bg-primary/10"
+        class="board-cell h-9 cursor-pointer border-b border-b-gray-50 hover:bg-primary/10 ${cb}"
         data-member="${m.id}" data-time="${col}"></td>`;
     }).join('');
 
@@ -457,9 +505,13 @@ function renderShiftBoard() {
     <table class="border-collapse" style="width:${totalW}px">
       <thead>
         <tr>
-          <th class="sticky left-0 z-20 bg-white border-r border-b border-gray-100 px-3 py-1.5 text-left text-xs text-gray-500 font-medium select-none top-0" style="min-width:120px">メンバー</th>
-          ${headerHtml}
+          <th rowspan="2" style="min-width:120px;top:0"
+            class="sticky left-0 z-30 bg-white border-r border-b-2 border-b-gray-200 border-gray-100 px-3 text-left text-xs text-gray-500 font-medium select-none">
+            メンバー
+          </th>
+          ${topRowHtml}
         </tr>
+        <tr>${bottomRowHtml}</tr>
       </thead>
       <tbody>${rowsHtml}</tbody>
     </table>`;
@@ -555,8 +607,27 @@ function openBoardSlotModal(memberId, startTime, endTime) {
     <div class="flex justify-between text-xs"><span class="text-gray-500">メンバー</span><span class="font-semibold text-gray-800">${m?.name || ''}</span></div>
     <div class="flex justify-between text-xs"><span class="text-gray-500">日付</span><span class="font-semibold text-gray-800">${fmtDate(currentDay)}</span></div>
     <div class="flex justify-between text-xs"><span class="text-gray-500">時間</span><span class="font-semibold text-gray-800">${startTime} 〜 ${endTime}</span></div>`;
-  $('board-slot-role').value = '';
-  $('board-slot-count').value = '1';
+
+  // 仕事ドロップダウン更新
+  const sel = $('board-slot-job');
+  sel.innerHTML = '<option value="">仕事を選択してください...</option>' +
+    jobs.map(j => `<option value="${j.id}">${j.title}（目安 ${j.required_count}人）</option>`).join('');
+  $('board-slot-job-detail').classList.add('hidden');
+  sel.onchange = () => {
+    const job = jobs.find(j => j.id === parseInt(sel.value));
+    const detail = $('board-slot-job-detail');
+    if (job) {
+      detail.innerHTML = [
+        job.description ? `<div><span class="text-gray-400">内容:</span> ${job.description}</div>` : '',
+        job.location    ? `<div><span class="text-gray-400">集合場所:</span> ${job.location}</div>` : '',
+        `<div><span class="text-gray-400">担当目安:</span> ${job.required_count}人</div>`,
+      ].filter(Boolean).join('');
+      detail.classList.remove('hidden');
+    } else {
+      detail.classList.add('hidden');
+    }
+  };
+
   $('board-slot-error').classList.add('hidden');
   $('modal-board-slot').classList.remove('hidden');
 }
@@ -585,6 +656,15 @@ $('btn-board-slot-submit').addEventListener('click', async () => {
   if (!pendingBoardSlot) return;
   const errEl = $('board-slot-error');
   errEl.classList.add('hidden');
+
+  const jobId = parseInt($('board-slot-job').value);
+  const job = jobs.find(j => j.id === jobId);
+  if (!job) {
+    errEl.textContent = '仕事を選択してください。';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
   try {
     const slot = await apiFetch(`/api/events/${EVENT_ID}/slots`, {
       method: 'POST',
@@ -592,8 +672,9 @@ $('btn-board-slot-submit').addEventListener('click', async () => {
         date: currentDay,
         start_time: pendingBoardSlot.startTime,
         end_time: pendingBoardSlot.endTime,
-        role: $('board-slot-role').value.trim(),
-        required_count: parseInt($('board-slot-count').value) || 1,
+        role: job.title,
+        location: job.location || '',
+        required_count: job.required_count,
       }),
     });
     await apiFetch(`/api/events/${EVENT_ID}/slots/${slot.id}/assign`, {
@@ -623,6 +704,108 @@ document.querySelectorAll('.interval-btn').forEach(btn => {
     boardSelectStart = null; boardHoverTime = null;
     updateBoardHint(); renderShiftBoard();
   });
+});
+
+// ─── Jobs ────────────────────────────────────────────────────────────────────
+async function loadJobs() {
+  const list = $('job-list');
+  try {
+    jobs = await apiFetch(`/api/events/${EVENT_ID}/jobs`);
+    renderJobList();
+  } catch (err) {
+    if (list) list.innerHTML = `<div class="text-center py-8 text-red-400 text-sm">${err.message}</div>`;
+  }
+}
+
+function renderJobList() {
+  const list = $('job-list');
+  if (!list) return;
+  if (!jobs.length) {
+    list.innerHTML = `<div class="text-center py-10 text-gray-400 text-sm">仕事が登録されていません。「追加」から登録してください。</div>`;
+    return;
+  }
+  list.innerHTML = jobs.map(j => `
+    <div class="bg-white rounded-xl border border-gray-100 p-4 flex items-start gap-3 group">
+      <div class="w-9 h-9 rounded-lg bg-primary-light flex items-center justify-center flex-shrink-0 mt-0.5">
+        <svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+        </svg>
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="text-sm font-semibold text-gray-900">${j.title}</div>
+        ${j.description ? `<div class="text-xs text-gray-500 mt-0.5 leading-relaxed">${j.description}</div>` : ''}
+        <div class="flex flex-wrap gap-3 mt-1.5">
+          ${j.location ? `
+            <span class="flex items-center gap-1 text-xs text-gray-400">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+              </svg>
+              ${j.location}
+            </span>` : ''}
+          <span class="flex items-center gap-1 text-xs text-gray-400">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+            </svg>
+            目安 ${j.required_count}人
+          </span>
+        </div>
+      </div>
+      <button class="btn-del-job text-gray-200 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
+        data-jid="${j.id}" title="削除">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+        </svg>
+      </button>
+    </div>
+  `).join('');
+
+  list.querySelectorAll('.btn-del-job').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('この仕事を削除しますか？')) return;
+      try {
+        await apiFetch(`/api/events/${EVENT_ID}/jobs/${btn.dataset.jid}`, { method: 'DELETE' });
+        await loadJobs();
+        showToast('仕事を削除しました');
+      } catch (err) { showToast(err.message, true); }
+    });
+  });
+}
+
+const modalAddJob = $('modal-add-job');
+$('btn-add-job').addEventListener('click', () => {
+  $('form-add-job').reset();
+  $('job-error').classList.add('hidden');
+  modalAddJob.classList.remove('hidden');
+});
+document.querySelectorAll('.job-modal-close').forEach(b =>
+  b.addEventListener('click', () => modalAddJob.classList.add('hidden'))
+);
+
+$('form-add-job').addEventListener('submit', async e => {
+  e.preventDefault();
+  const errEl = $('job-error');
+  errEl.classList.add('hidden');
+  try {
+    await apiFetch(`/api/events/${EVENT_ID}/jobs`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: $('job-title').value.trim(),
+        description: $('job-description').value.trim(),
+        location: $('job-location').value.trim(),
+        required_count: parseInt($('job-count').value) || 1,
+      }),
+    });
+    modalAddJob.classList.add('hidden');
+    $('form-add-job').reset();
+    await loadJobs();
+    showToast('仕事を追加しました');
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.classList.remove('hidden');
+  }
 });
 
 // ─── Add Slot Modal ───────────────────────────────────────────────────────────

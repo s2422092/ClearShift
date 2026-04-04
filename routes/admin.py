@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, redirect, url_for, request, jsonify, session, Response
 from flask_login import login_required, current_user
-from models import db, Event, EventMember, ShiftSlot, ShiftAssignment, Availability, EventCollaborator, User
+from models import db, Event, EventMember, ShiftSlot, ShiftAssignment, Availability, EventCollaborator, User, JobType
 from datetime import date, datetime, timedelta
 import csv
 import io
@@ -434,6 +434,46 @@ def api_delete_slot(event_id, slot_id):
     _can_access_event(event_id)
     slot = ShiftSlot.query.filter_by(id=slot_id, event_id=event_id).first_or_404()
     db.session.delete(slot)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+# ── API: Jobs ────────────────────────────────────────────────────────────────
+
+@admin_bp.route('/api/events/<int:event_id>/jobs', methods=['GET'])
+@login_required
+def api_jobs(event_id):
+    _can_access_event(event_id)
+    jobs = JobType.query.filter_by(event_id=event_id).order_by(JobType.created_at).all()
+    return jsonify([j.to_dict() for j in jobs])
+
+
+@admin_bp.route('/api/events/<int:event_id>/jobs', methods=['POST'])
+@login_required
+def api_create_job(event_id):
+    _can_access_event(event_id)
+    data = request.get_json()
+    title = (data.get('title') or '').strip()
+    if not title:
+        return jsonify({'error': '仕事タイトルを入力してください。'}), 400
+    job = JobType(
+        event_id=event_id,
+        title=title,
+        description=(data.get('description') or '').strip() or None,
+        location=(data.get('location') or '').strip() or None,
+        required_count=int(data.get('required_count') or 1),
+    )
+    db.session.add(job)
+    db.session.commit()
+    return jsonify(job.to_dict()), 201
+
+
+@admin_bp.route('/api/events/<int:event_id>/jobs/<int:job_id>', methods=['DELETE'])
+@login_required
+def api_delete_job(event_id, job_id):
+    _can_access_event(event_id)
+    job = JobType.query.filter_by(id=job_id, event_id=event_id).first_or_404()
+    db.session.delete(job)
     db.session.commit()
     return jsonify({'ok': True})
 

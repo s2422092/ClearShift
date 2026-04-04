@@ -106,7 +106,7 @@
 
     <!-- タブ -->
     <div class="bg-white border-b border-gray-100 px-6 flex gap-0 flex-shrink-0">
-      {% for tab_id, tab_label in [('shift', 'シフト表'), ('members', 'メンバー'), ('settings', '設定')] %}
+      {% for tab_id, tab_label in [('shift', 'シフト表'), ('jobs', '仕事'), ('members', 'メンバー'), ('settings', '設定')] %}
       <button data-tab="{{ tab_id }}"
         class="tab-btn px-4 py-3 text-sm font-medium border-b-2 transition-colors
           {% if loop.first %}border-primary text-primary{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">
@@ -154,6 +154,26 @@
           <div id="shift-board">
             <div class="text-center py-8 text-gray-400 text-sm">読み込み中...</div>
           </div>
+        </div>
+      </div>
+
+      <!-- 仕事タブ -->
+      <div id="tab-jobs" class="tab-content hidden p-6">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-base font-semibold text-gray-800">仕事管理</h2>
+            <p class="text-xs text-gray-400 mt-0.5">シフトに割り当てる仕事を登録してください</p>
+          </div>
+          <button id="btn-add-job"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-primary border border-primary rounded-lg hover:bg-primary-light transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+            </svg>
+            追加
+          </button>
+        </div>
+        <div id="job-list" class="space-y-2">
+          <div class="text-center py-8 text-gray-400 text-sm">読み込み中...</div>
         </div>
       </div>
 
@@ -602,6 +622,50 @@
   </div>
 </div>
 
+<!-- 仕事追加モーダル -->
+<div id="modal-add-job" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-black/40 backdrop-blur-sm job-modal-close"></div>
+  <div class="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+    <div class="flex items-center justify-between mb-5">
+      <h3 class="text-lg font-bold text-gray-900">仕事を追加</h3>
+      <button class="job-modal-close text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <form id="form-add-job" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1.5">仕事タイトル <span class="text-red-400">*</span></label>
+        <input type="text" id="job-title" required placeholder="例: 受付"
+          class="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"/>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1.5">仕事内容</label>
+        <textarea id="job-description" rows="2" placeholder="例: 来場者の誘導・案内を行う"
+          class="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"></textarea>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5">集合場所</label>
+          <input type="text" id="job-location" placeholder="例: 正門前"
+            class="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"/>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5">担当目安人数</label>
+          <input type="number" id="job-count" value="1" min="1"
+            class="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"/>
+        </div>
+      </div>
+      <div id="job-error" class="hidden text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg"></div>
+      <div class="flex gap-3">
+        <button type="button" class="job-modal-close flex-1 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">キャンセル</button>
+        <button type="submit" class="flex-1 py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark">追加する</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- ボードシフト登録モーダル -->
 <div id="modal-board-slot" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
   <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" id="board-slot-overlay"></div>
@@ -610,15 +674,13 @@
     <div id="board-slot-info" class="bg-surface rounded-xl p-3 mb-4 space-y-1.5"></div>
     <div class="space-y-3">
       <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">役割・ポジション（任意）</label>
-        <input type="text" id="board-slot-role" placeholder="例: 受付"
-          class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary">
+        <label class="block text-xs font-medium text-gray-600 mb-1">仕事を選択 <span class="text-red-400">*</span></label>
+        <select id="board-slot-job"
+          class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white">
+          <option value="">仕事を選択してください...</option>
+        </select>
       </div>
-      <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">必要人数</label>
-        <input type="number" id="board-slot-count" value="1" min="1"
-          class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary">
-      </div>
+      <div id="board-slot-job-detail" class="hidden bg-surface rounded-xl p-3 space-y-1.5 text-xs text-gray-600"></div>
     </div>
     <div id="board-slot-error" class="hidden mt-3 text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg"></div>
     <div class="flex gap-3 mt-4">

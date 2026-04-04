@@ -4,6 +4,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 import secrets
 
+
 db = SQLAlchemy()
 
 
@@ -147,6 +148,28 @@ class ShiftAssignment(db.Model):
             'member_department': self.member.department if self.member else None,
             'status': self.status,
             'note': self.note,
+        }
+
+
+class JobType(db.Model):
+    """仕事定義（シフト枠に紐づくカテゴリ）"""
+    __tablename__ = 'job_types'
+    id = db.Column(db.Integer, primary_key=True)
+    event_id = db.Column(db.Integer, db.ForeignKey('events.id'), nullable=False)
+    title = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text)
+    location = db.Column(db.String(200))
+    required_count = db.Column(db.Integer, default=1)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'event_id': self.event_id,
+            'title': self.title,
+            'description': self.description,
+            'location': self.location,
+            'required_count': self.required_count,
         }
 
 
