@@ -149,13 +149,34 @@
             </button>
           </div>
         </div>
-        <!-- 選択ヒント -->
+        <!-- 選択ヒント（通常モード） -->
         <div id="board-hint" class="hidden bg-primary-light border-b border-primary/20 px-4 py-2 flex items-center gap-3 flex-shrink-0">
           <svg class="w-4 h-4 flex-shrink-0 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
           </svg>
           <span id="board-hint-text" class="text-xs text-primary flex-1"></span>
           <button id="btn-cancel-board-select" class="text-xs text-primary/60 hover:text-primary font-medium flex-shrink-0">キャンセル</button>
+        </div>
+        <!-- コピーモードバナー -->
+        <div id="copy-mode-banner" class="hidden border-b border-purple-200 px-4 py-2 flex items-center gap-3 flex-shrink-0" style="background:#F5F3FF">
+          <!-- アバター -->
+          <div id="copy-banner-avatar"
+            class="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold text-white"
+            style="background:#9F7AEA"></div>
+          <!-- テキスト -->
+          <div class="flex-1 min-w-0">
+            <span class="text-xs font-bold text-purple-700" id="copy-banner-name"></span>
+            <span class="text-xs text-purple-500"> のシフトをコピー中</span>
+            <span class="hidden sm:inline text-xs text-purple-400"> — コピー先のメンバー行をクリック</span>
+          </div>
+          <!-- 解除ボタン -->
+          <button id="btn-cancel-copy"
+            class="flex items-center gap-1 text-xs font-medium text-purple-500 hover:text-purple-700 px-2.5 py-1 rounded-lg hover:bg-purple-100 transition-colors flex-shrink-0">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+            解除
+          </button>
         </div>
         <!-- グリッド -->
         <div class="flex-1 overflow-auto" id="shift-board-container">

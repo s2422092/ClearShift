@@ -607,27 +607,34 @@ function renderShiftBoard() {
 
       const dimStyle = isSearchDim ? 'opacity:0.25;' : '';
       const hlStyle  = isSearchMatch ? 'outline:2px solid #4DA3FF;outline-offset:-1px;' : '';
-      const copyStyle = isCopySrc ? 'outline:2px solid #9F7AEA;outline-offset:-1px;' : '';
+      const copyStyle = isCopySrc ? 'background:rgba(159,122,234,0.12);outline:2px solid #9F7AEA;outline-offset:-2px;' : '';
+
+      // sticky列の背景: コピー元は紫 > リーダーは黄 > デフォルト白
+      const stickyBg = isCopySrc ? 'background:rgba(159,122,234,0.12);' : leaderBg;
 
       return `<tr style="${leaderBg}${dimStyle}${hlStyle}${copyStyle}" data-member-row="${m.id}">
         <td class="sticky left-0 z-10 border-r border-b border-gray-100 px-2 py-1 whitespace-nowrap select-none"
-          style="min-width:140px;${leaderBg}${dimStyle}">
+          style="min-width:140px;${stickyBg}${dimStyle}">
           <div class="flex items-center gap-1.5">
             ${m.is_leader ? '<span class="text-yellow-400 text-xs">★</span>' : ''}
             <div class="flex-1 min-w-0">
-              <div class="text-xs font-semibold text-gray-800 truncate">${m.name}</div>
+              <div class="text-xs font-semibold truncate ${isCopySrc ? 'text-purple-700' : 'text-gray-800'}">${m.name}</div>
               ${m.grade ? `<div class="text-[9px] text-gray-400">${m.grade}</div>` : ''}
             </div>
-            <button class="btn-board-copy flex-shrink-0 text-gray-300 hover:text-purple-400 transition-colors ${isCopySrc ? 'text-purple-500' : ''}"
+            <button class="btn-board-copy flex-shrink-0 transition-colors ${isCopySrc ? 'text-purple-500' : 'text-gray-300 hover:text-purple-400'}"
               data-mid="${m.id}" title="${isCopySrc ? 'コピー元（クリックで解除）' : 'このメンバーのシフトをコピー'}">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-              </svg>
+              ${isCopySrc
+                ? `<svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                     <path d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                   </svg>`
+                : `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                   </svg>`}
             </button>
           </div>
         </td>
         <td class="sticky border-r border-b border-gray-100 px-2 py-1 whitespace-nowrap select-none text-[9px] text-gray-400"
-          style="left:140px;min-width:70px;${leaderBg}${dimStyle}">
+          style="left:140px;min-width:70px;${stickyBg}${dimStyle}">
           ${m.department || ''}
         </td>
         ${cellsHtml}
@@ -773,18 +780,26 @@ function updateBoardHighlight() {
 }
 
 function updateBoardHint() {
-  const hint = $('board-hint');
-  if (!hint) return;
+  const hint   = $('board-hint');
+  const banner = $('copy-mode-banner');
+  if (!hint || !banner) return;
+
   if (copySourceMemberId !== null) {
+    // コピーモード → 専用バナーを表示
     const m = members.find(x => x.id === copySourceMemberId);
-    $('board-hint-text').textContent = `「${m?.name || ''}」のシフトをコピー中。コピー先のメンバー行をクリックしてください。（コピーアイコンを再クリックで解除）`;
-    hint.classList.remove('hidden');
+    $('copy-banner-avatar').textContent = m?.name[0] || '?';
+    $('copy-banner-name').textContent   = m?.name || '';
+    hint.classList.add('hidden');
+    banner.classList.remove('hidden');
   } else if (boardSelectStart) {
+    // 通常選択モード → ヒントバーを表示
     const m = members.find(x => x.id === boardSelectStart.memberId);
     $('board-hint-text').textContent = `${m?.name || ''} — ${boardSelectStart.timeStr} を開始時間として選択中。終了時間のセルをクリックしてください。`;
+    banner.classList.add('hidden');
     hint.classList.remove('hidden');
   } else {
     hint.classList.add('hidden');
+    banner.classList.add('hidden');
   }
 }
 
@@ -921,6 +936,11 @@ $('btn-delete-confirm').addEventListener('click', async () => {
 $('btn-cancel-board-select').addEventListener('click', () => {
   boardSelectStart = null; boardHoverTime = null;
   updateBoardHint(); updateBoardHighlight();
+});
+$('btn-cancel-copy').addEventListener('click', () => {
+  copySourceMemberId = null;
+  updateBoardHint();
+  renderShiftBoard();
 });
 
 $('btn-board-slot-submit').addEventListener('click', async () => {
