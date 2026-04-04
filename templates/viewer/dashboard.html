@@ -3,100 +3,135 @@
 
 {% block content %}
 <div class="min-h-screen bg-surface">
+
   <!-- ヘッダー -->
   <header class="bg-white border-b border-gray-100 sticky top-0 z-30">
-    <div class="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
-      <div class="flex items-center gap-2">
-        <div class="w-7 h-7 bg-primary rounded-lg flex items-center justify-center">
+    <div class="px-4 h-14 flex items-center justify-between">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <div class="w-7 h-7 bg-primary rounded-lg flex items-center justify-center flex-shrink-0">
           <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
           </svg>
         </div>
-        <div>
-          <div class="text-sm font-bold text-gray-900 leading-tight">{{ event.title }}</div>
+        <div class="min-w-0">
+          <div class="text-sm font-bold text-gray-900 leading-tight truncate max-w-[150px] sm:max-w-none">{{ event.title }}</div>
           <div class="text-xs text-gray-400">{{ event.start_date.strftime('%m/%d') }} 〜 {{ event.end_date.strftime('%m/%d') }}</div>
         </div>
       </div>
-      <div class="flex items-center gap-3">
+      <div class="flex items-center gap-2 flex-shrink-0">
         <div class="flex items-center gap-1.5">
-          <div class="w-6 h-6 rounded-full bg-primary-light flex items-center justify-center">
+          <div class="w-7 h-7 rounded-full bg-primary-light flex items-center justify-center flex-shrink-0">
             <span class="text-xs font-bold text-primary">{{ member.name[0] }}</span>
           </div>
-          <span class="text-sm font-medium text-gray-700">{{ member.name }}</span>
+          <span class="text-sm font-medium text-gray-700 hidden sm:inline">{{ member.name }}</span>
         </div>
         <a href="{{ url_for('viewer.logout', event_id=event.id) }}"
-          class="text-gray-400 hover:text-gray-600 transition-colors" title="ログアウト">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          class="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 transition-colors rounded-lg hover:bg-surface" title="ログアウト">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
           </svg>
         </a>
       </div>
     </div>
-
     <!-- タブ -->
-    <div class="max-w-2xl mx-auto px-4 flex gap-0 border-t border-gray-50">
+    <div class="flex border-t border-gray-50 overflow-x-auto">
       <button data-vtab="mine"
-        class="vtab-btn px-5 py-3 text-sm font-medium border-b-2 border-primary text-primary transition-colors">
+        class="vtab-btn flex-shrink-0 px-5 py-3 text-sm font-medium border-b-2 border-primary text-primary transition-colors">
         マイシフト
       </button>
       <button data-vtab="all"
-        class="vtab-btn px-5 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 transition-colors">
+        class="vtab-btn flex-shrink-0 px-5 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 transition-colors">
         全体シフト
       </button>
       <button data-vtab="availability"
-        class="vtab-btn px-5 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 transition-colors">
+        class="vtab-btn flex-shrink-0 px-5 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 transition-colors">
         希望提出
       </button>
     </div>
   </header>
 
-  <div class="max-w-2xl mx-auto px-4 py-5">
-
-    <!-- マイシフトタブ -->
-    <div id="vtab-mine" class="vtab-content">
+  <!-- ── マイシフトタブ ── -->
+  <div id="vtab-mine" class="vtab-content">
+    <div class="max-w-2xl mx-auto px-4 py-5">
       <h2 class="text-base font-semibold text-gray-800 mb-4">あなたのシフト</h2>
-      <div id="my-shifts-list" class="space-y-3">
+      <div id="my-shifts-list" class="space-y-4">
         <div class="text-center py-10 text-gray-400 text-sm">読み込み中...</div>
       </div>
     </div>
+  </div>
 
-    <!-- 全体シフトタブ -->
-    <div id="vtab-all" class="vtab-content hidden">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="text-base font-semibold text-gray-800">全体シフト</h2>
-        <select id="all-filter-date" class="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30">
-          <option value="">全ての日付</option>
-        </select>
+  <!-- ── 全体シフトタブ ── -->
+  <div id="vtab-all" class="vtab-content hidden">
+    <!-- コントロールバー -->
+    <div class="bg-white border-b border-gray-100 px-4 py-2 sticky top-[97px] z-20">
+      <div class="flex items-center gap-2 flex-wrap">
+        <div id="board-day-tabs" class="flex gap-1.5 overflow-x-auto flex-1 min-w-0 pb-0.5"></div>
+        <div class="flex gap-0.5 flex-shrink-0 bg-surface rounded-lg p-0.5">
+          <button class="viewer-interval-btn px-2.5 py-1 text-xs font-medium rounded-md bg-primary text-white" data-min="30">30分</button>
+          <button class="viewer-interval-btn px-2.5 py-1 text-xs font-medium rounded-md text-gray-500 hover:text-gray-700" data-min="60">1時間</button>
+          <button class="viewer-interval-btn px-2.5 py-1 text-xs font-medium rounded-md text-gray-500 hover:text-gray-700" data-min="15">15分</button>
+        </div>
       </div>
-      <div id="all-shifts-list" class="space-y-3">
+    </div>
+    <!-- ボード（横スクロール + 縦スクロール） -->
+    <div id="board-wrapper" class="overflow-auto" style="height:calc(100svh - 155px)">
+      <div id="all-shifts-board">
         <div class="text-center py-10 text-gray-400 text-sm">読み込み中...</div>
       </div>
     </div>
+  </div>
 
-    <!-- 希望提出タブ -->
-    <div id="vtab-availability" class="vtab-content hidden">
+  <!-- ── 希望提出タブ ── -->
+  <div id="vtab-availability" class="vtab-content hidden">
+    <div class="max-w-2xl mx-auto px-4 py-5">
       <h2 class="text-base font-semibold text-gray-800 mb-1">参加希望の提出</h2>
       <p class="text-sm text-gray-500 mb-4">各日程の参加可否を選択してください。</p>
       <div id="availability-form" class="space-y-2">
         <div class="text-center py-10 text-gray-400 text-sm">読み込み中...</div>
       </div>
       <button id="btn-submit-avail"
-        class="hidden mt-4 w-full py-2.5 bg-primary text-white rounded-lg text-sm font-semibold hover:bg-primary-dark transition-colors">
+        class="hidden mt-4 w-full py-3 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary-dark transition-colors active:scale-[.99]">
         希望を送信する
       </button>
       <div id="avail-success" class="hidden mt-3 text-sm text-green-600 bg-green-50 px-4 py-3 rounded-lg text-center">
         希望を送信しました。
       </div>
     </div>
+  </div>
 
+</div>
+
+<!-- ── シフト詳細モーダル ── -->
+<div id="modal-shift-detail" class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+  <div id="shift-detail-overlay" class="absolute inset-0 bg-black/40"></div>
+  <div class="relative bg-white w-full sm:max-w-sm sm:rounded-2xl rounded-t-2xl shadow-2xl overflow-hidden max-h-[90svh] flex flex-col">
+    <!-- モバイル用ハンドル -->
+    <div class="flex justify-center pt-3 pb-0 sm:hidden flex-shrink-0">
+      <div class="w-10 h-1 rounded-full bg-gray-200"></div>
+    </div>
+    <!-- ヘッダー -->
+    <div class="px-5 pt-3 sm:pt-5 pb-3 flex items-start justify-between gap-3 flex-shrink-0 border-b border-gray-50">
+      <div id="shift-detail-header" class="flex-1 min-w-0"></div>
+      <button id="btn-shift-detail-close"
+        class="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 rounded-lg hover:bg-surface flex-shrink-0 mt-0.5">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <!-- ボディ（スクロール可） -->
+    <div id="shift-detail-body" class="overflow-y-auto px-5 py-4 space-y-3"></div>
   </div>
 </div>
 
 <script>
-const EVENT_ID = {{ event.id }};
+const EVENT_ID    = {{ event.id }};
 const MEMBER_NAME = "{{ member.name }}";
+const MY_MEMBER_ID = {{ member.id }};
+const EVENT_START  = "{{ event.start_date.isoformat() }}";
+const EVENT_END    = "{{ event.end_date.isoformat() }}";
 </script>
 {% endblock %}
 
