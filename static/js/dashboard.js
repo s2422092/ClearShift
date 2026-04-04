@@ -311,158 +311,303 @@ $('form-add-member').addEventListener('submit', async e => {
   }
 });
 
-// ─── Load Shifts ──────────────────────────────────────────────────────────────
+// ─── Shift Board ─────────────────────────────────────────────────────────────
+let currentDay = null;
+let intervalMin = 30;
+let eventDates = [];
+let boardSelectStart = null;
+let boardHoverTime = null;
+let pendingBoardSlot = null;
+
+const BOARD_START_H = 8;
+const BOARD_END_H   = 22;
+const CELL_W = { 5: 20, 10: 24, 15: 30, 30: 44, 60: 64 };
+
+function timeToMin(t) {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+}
+function minToTime(m) {
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+function buildTimeCols(step) {
+  const cols = [];
+  for (let m = BOARD_START_H * 60; m < BOARD_END_H * 60; m += step) cols.push(minToTime(m));
+  return cols;
+}
+function generateEventDates(startIso, endIso) {
+  const dates = [];
+  const cur = new Date(startIso + 'T00:00:00');
+  const end = new Date(endIso + 'T00:00:00');
+  while (cur <= end) { dates.push(cur.toISOString().split('T')[0]); cur.setDate(cur.getDate() + 1); }
+  return dates;
+}
+function slotColor(status) {
+  return status === 'absent' ? 'rgba(239,68,68,0.2)' :
+         status === 'late'   ? 'rgba(234,179,8,0.2)' :
+                               'rgba(77,163,255,0.22)';
+}
+
 async function loadShifts() {
-  const table = $('shift-table');
   try {
     [slots, members] = await Promise.all([
       apiFetch(`/api/events/${EVENT_ID}/slots`),
       apiFetch(`/api/events/${EVENT_ID}/members`),
     ]);
-
-    // フィルター日付リスト更新
-    const dateFilter = $('filter-date');
-    const currentDateVal = dateFilter.value;
-    const dates = [...new Set(slots.map(s => s.date))].sort();
-    dateFilter.innerHTML = '<option value="">全ての日付</option>' +
-      dates.map(d => `<option value="${d}" ${d === currentDateVal ? 'selected' : ''}>${fmtDate(d)}</option>`).join('');
-
-    // 局フィルター
-    const deptFilter = $('filter-dept');
-    const currentDept = deptFilter.value;
-    const depts = [...new Set(members.map(m => m.department).filter(Boolean))];
-    deptFilter.innerHTML = '<option value="">全ての局</option>' +
-      depts.map(d => `<option value="${d}" ${d === currentDept ? 'selected' : ''}>${d}</option>`).join('');
-
-    renderShifts();
+    eventDates = generateEventDates(EVENT_START, EVENT_END);
+    if (!currentDay || !eventDates.includes(currentDay)) currentDay = eventDates[0] || null;
+    renderDayTabs();
+    renderShiftBoard();
   } catch (err) {
-    table.innerHTML = `<div class="text-center py-10 text-red-400 text-sm">${err.message}</div>`;
+    $('shift-board').innerHTML = `<div class="text-center py-10 text-red-400 text-sm">${err.message}</div>`;
   }
 }
 
-function renderShifts() {
-  const table = $('shift-table');
-  const dateFilter = $('filter-date').value;
-  const deptFilter = $('filter-dept').value;
+function renderDayTabs() {
+  const container = $('board-day-tabs');
+  if (!container) return;
+  container.innerHTML = eventDates.map(date => {
+    const d = new Date(date + 'T00:00:00');
+    const label = d.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' });
+    const active = date === currentDay;
+    return `<button class="board-day-tab flex-shrink-0 px-3 py-1 text-xs font-medium rounded-lg transition-colors
+      ${active ? 'bg-primary text-white' : 'text-gray-600 hover:bg-surface border border-transparent hover:border-gray-200'}"
+      data-date="${date}">${label}</button>`;
+  }).join('');
+  container.querySelectorAll('.board-day-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      currentDay = btn.dataset.date;
+      boardSelectStart = null; boardHoverTime = null;
+      updateBoardHint(); renderDayTabs(); renderShiftBoard();
+    });
+  });
+}
 
-  let filtered = slots;
-  if (dateFilter) filtered = filtered.filter(s => s.date === dateFilter);
-
-  if (!filtered.length) {
-    table.innerHTML = `<div class="text-center py-10 text-gray-400 text-sm">シフト枠がありません。「枠を追加」から作成してください。</div>`;
+function renderShiftBoard() {
+  const board = $('shift-board');
+  if (!currentDay || !members.length) {
+    board.innerHTML = `<div class="p-10 text-center text-gray-400 text-sm">${!currentDay ? '日付を選択してください' : 'メンバーを追加してシフトを作成してください'}</div>`;
     return;
   }
 
-  // 日付でグループ化
-  const byDate = {};
-  filtered.forEach(s => (byDate[s.date] = byDate[s.date] || []).push(s));
+  const cols = buildTimeCols(intervalMin);
+  const cw = CELL_W[intervalMin] || 44;
+  const daySlots = slots.filter(s => s.date === currentDay);
 
-  table.innerHTML = Object.entries(byDate).sort(([a], [b]) => a.localeCompare(b)).map(([date, daySlots]) => `
-    <div class="bg-white rounded-xl border border-gray-100 overflow-hidden">
-      <div class="px-4 py-2.5 bg-surface border-b border-gray-100 flex items-center gap-2">
-        <span class="text-sm font-bold text-gray-800">${fmtDate(date)}</span>
-        <span class="text-xs text-gray-400">${daySlots.length}枠</span>
-      </div>
-      <div class="divide-y divide-gray-50">
-        ${daySlots.map(slot => {
-          const visibleAssignments = deptFilter
-            ? slot.assignments.filter(a => members.find(m => m.id === a.member_id)?.department === deptFilter)
-            : slot.assignments;
-          return `
-            <div class="px-4 py-3 shift-card" data-slot="${slot.id}">
-              <div class="flex items-start gap-3">
-                <div class="flex-shrink-0 text-center min-w-[56px]">
-                  <div class="text-xs font-bold text-primary">${slot.start_time}</div>
-                  <div class="w-px h-3 bg-gray-200 mx-auto my-0.5"></div>
-                  <div class="text-xs text-gray-400">${slot.end_time}</div>
-                </div>
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2 flex-wrap mb-1.5">
-                    ${slot.role ? `<span class="text-sm font-semibold text-gray-800">${slot.role}</span>` : ''}
-                    ${slot.location ? `<span class="text-xs text-gray-400">📍 ${slot.location}</span>` : ''}
-                    <span class="text-xs text-gray-400 ml-auto">必要人数: ${slot.required_count}人</span>
-                  </div>
-                  <div class="flex flex-wrap gap-1.5 items-center">
-                    ${visibleAssignments.map(a => `
-                      <span class="assign-chip ${a.status !== 'scheduled' ? a.status : ''}" title="${STATUS_LABEL[a.status]}">
-                        <span>${a.member_name}</span>
-                        <button class="btn-update-status text-current opacity-60 hover:opacity-100 ml-1"
-                          data-aid="${a.id}" data-status="${a.status}" data-name="${a.member_name}">
-                          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                          </svg>
-                        </button>
-                        <button class="btn-remove-assignment opacity-40 hover:opacity-100 ml-0.5"
-                          data-aid="${a.id}">
-                          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                          </svg>
-                        </button>
-                      </span>
-                    `).join('')}
-                    <button class="btn-assign text-xs text-primary hover:text-primary-dark transition-colors flex items-center gap-1"
-                      data-slot="${slot.id}">
-                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-                      </svg>
-                      追加
-                    </button>
-                  </div>
-                </div>
-                <button class="btn-del-slot text-gray-200 hover:text-red-400 transition-colors flex-shrink-0"
-                  data-slot="${slot.id}">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                  </svg>
-                </button>
-              </div>
-            </div>
-          `;
-        }).join('')}
-      </div>
-    </div>
-  `).join('');
-
-  // イベントリスナーを追加
-  table.querySelectorAll('.btn-del-slot').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      if (!confirm('このシフト枠を削除しますか？')) return;
-      try {
-        await apiFetch(`/api/events/${EVENT_ID}/slots/${btn.dataset.slot}`, { method: 'DELETE' });
-        loadShifts();
-        showToast('シフト枠を削除しました');
-      } catch (err) { showToast(err.message, true); }
+  // Build occupancy map: `{memberId}|{timeStr}` → { slotId, role, assignmentId, status, isFirst }
+  const cellMap = new Map();
+  daySlots.forEach(slot => {
+    const startM = timeToMin(slot.start_time);
+    const endM   = timeToMin(slot.end_time);
+    slot.assignments.forEach(a => {
+      cols.forEach((col, i) => {
+        const colM = timeToMin(col);
+        if (colM >= startM && colM < endM) {
+          const prevM = i > 0 ? timeToMin(cols[i - 1]) : -1;
+          cellMap.set(`${a.member_id}|${col}`, {
+            slotId: slot.id, role: slot.role,
+            assignmentId: a.id, status: a.status,
+            isFirst: prevM < startM,
+          });
+        }
+      });
     });
   });
 
-  table.querySelectorAll('.btn-assign').forEach(btn => {
-    btn.addEventListener('click', () => openAssignModal(parseInt(btn.dataset.slot)));
-  });
+  const sortedMembers = [...members].sort((a, b) => gradeNum(b.grade) - gradeNum(a.grade));
 
-  table.querySelectorAll('.btn-remove-assignment').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      try {
-        await apiFetch(`/api/assignments/${btn.dataset.aid}`, { method: 'DELETE' });
-        loadShifts();
-      } catch (err) { showToast(err.message, true); }
+  const headerHtml = cols.map(col => {
+    const [, m] = col.split(':').map(Number);
+    const label = m === 0 ? col : (intervalMin <= 30 && m === 30 ? ':30' : (intervalMin <= 15 ? '·' : ''));
+    return `<th style="min-width:${cw}px;width:${cw}px" class="border-b border-gray-100 py-1.5 text-center text-[10px] text-gray-400 font-normal select-none sticky top-0 bg-white z-10">${label}</th>`;
+  }).join('');
+
+  const rowsHtml = sortedMembers.map(m => {
+    const cellsHtml = cols.map(col => {
+      const key = `${m.id}|${col}`;
+      const cell = cellMap.get(key);
+
+      if (cell) {
+        const bg = slotColor(cell.status);
+        const borderLeft = cell.isFirst ? 'border-l-2' : '';
+        const roleText = cell.isFirst && cell.role
+          ? `<span class="absolute inset-0 flex items-center px-1 text-[9px] font-semibold text-primary/80 overflow-hidden whitespace-nowrap pointer-events-none">${cell.role}</span>`
+          : '';
+        return `<td style="min-width:${cw}px;width:${cw}px;background:${bg}"
+          class="board-cell-occupied relative border border-white/60 h-9 cursor-pointer ${borderLeft} border-l-primary/50"
+          data-slot="${cell.slotId}" data-aid="${cell.assignmentId}" data-member="${m.id}" data-time="${col}">${roleText}</td>`;
+      }
+
+      let extra = '';
+      if (boardSelectStart?.memberId === m.id) {
+        const startM = timeToMin(boardSelectStart.timeStr);
+        const colM   = timeToMin(col);
+        const endRef = boardHoverTime ? timeToMin(boardHoverTime) : startM;
+        const lo = Math.min(startM, endRef), hi = Math.max(startM, endRef);
+        if (colM === startM) extra = 'bg-primary/40';
+        else if (colM > lo && colM <= hi) extra = 'bg-primary/20';
+      }
+
+      return `<td style="min-width:${cw}px;width:${cw}px"
+        class="board-cell border border-gray-50 h-9 cursor-pointer transition-colors ${extra || 'hover:bg-primary/10'}"
+        data-member="${m.id}" data-time="${col}"></td>`;
+    }).join('');
+
+    return `<tr>
+      <td class="sticky left-0 z-10 bg-white border-r border-b border-gray-100 px-3 py-1 whitespace-nowrap select-none" style="min-width:120px">
+        <div class="text-xs font-semibold text-gray-800">${m.name}</div>
+        ${m.department ? `<div class="text-[10px] text-gray-400">${m.department}</div>` : ''}
+      </td>
+      ${cellsHtml}
+    </tr>`;
+  }).join('');
+
+  const totalW = 120 + cols.length * cw;
+  board.innerHTML = `
+    <table class="border-collapse" style="width:${totalW}px">
+      <thead>
+        <tr>
+          <th class="sticky left-0 z-20 bg-white border-r border-b border-gray-100 px-3 py-1.5 text-left text-xs text-gray-500 font-medium select-none top-0" style="min-width:120px">メンバー</th>
+          ${headerHtml}
+        </tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>`;
+
+  board.querySelectorAll('.board-cell').forEach(cell => {
+    cell.addEventListener('click', () => {
+      handleBoardCellClick(parseInt(cell.dataset.member), cell.dataset.time, cols);
+    });
+    cell.addEventListener('mouseenter', () => {
+      if (boardSelectStart && boardSelectStart.memberId === parseInt(cell.dataset.member)) {
+        boardHoverTime = cell.dataset.time;
+        renderShiftBoard();
+      }
     });
   });
 
-  table.querySelectorAll('.btn-update-status').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const statuses = ['scheduled', 'absent', 'late'];
-      const current = btn.dataset.status;
-      const next = statuses[(statuses.indexOf(current) + 1) % statuses.length];
-      apiFetch(`/api/assignments/${btn.dataset.aid}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: next }),
-      }).then(() => loadShifts()).catch(err => showToast(err.message, true));
-    });
+  board.querySelectorAll('.board-cell-occupied').forEach(cell => {
+    cell.addEventListener('click', () => openOccupiedCellMenu(parseInt(cell.dataset.slot), parseInt(cell.dataset.aid)));
   });
 }
 
-$('filter-date').addEventListener('change', renderShifts);
-$('filter-dept').addEventListener('change', renderShifts);
+function handleBoardCellClick(memberId, timeStr, cols) {
+  if (!boardSelectStart) {
+    boardSelectStart = { memberId, timeStr };
+    boardHoverTime = timeStr;
+    updateBoardHint(); renderDayTabs(); renderShiftBoard();
+    return;
+  }
+  if (boardSelectStart.memberId !== memberId) {
+    boardSelectStart = { memberId, timeStr };
+    boardHoverTime = timeStr;
+    updateBoardHint(); renderShiftBoard();
+    return;
+  }
+  const startIdx = cols.indexOf(boardSelectStart.timeStr);
+  const endIdx   = cols.indexOf(timeStr);
+  if (startIdx === endIdx) {
+    boardSelectStart = null; boardHoverTime = null;
+    updateBoardHint(); renderShiftBoard();
+    return;
+  }
+  const lo = Math.min(startIdx, endIdx), hi = Math.max(startIdx, endIdx);
+  const startTime = cols[lo];
+  const endTime   = minToTime(timeToMin(cols[hi]) + intervalMin);
+  boardSelectStart = null; boardHoverTime = null;
+  updateBoardHint();
+  openBoardSlotModal(memberId, startTime, endTime);
+}
+
+function updateBoardHint() {
+  const hint = $('board-hint');
+  if (!hint) return;
+  if (boardSelectStart) {
+    const m = members.find(x => x.id === boardSelectStart.memberId);
+    $('board-hint-text').textContent = `${m?.name || ''} — ${boardSelectStart.timeStr} を開始時間として選択中。終了時間のセルをクリックしてください。`;
+    hint.classList.remove('hidden');
+  } else {
+    hint.classList.add('hidden');
+  }
+}
+
+function openBoardSlotModal(memberId, startTime, endTime) {
+  const m = members.find(x => x.id === memberId);
+  pendingBoardSlot = { memberId, startTime, endTime };
+  $('board-slot-info').innerHTML = `
+    <div class="flex justify-between text-xs"><span class="text-gray-500">メンバー</span><span class="font-semibold text-gray-800">${m?.name || ''}</span></div>
+    <div class="flex justify-between text-xs"><span class="text-gray-500">日付</span><span class="font-semibold text-gray-800">${fmtDate(currentDay)}</span></div>
+    <div class="flex justify-between text-xs"><span class="text-gray-500">時間</span><span class="font-semibold text-gray-800">${startTime} 〜 ${endTime}</span></div>`;
+  $('board-slot-role').value = '';
+  $('board-slot-count').value = '1';
+  $('board-slot-error').classList.add('hidden');
+  $('modal-board-slot').classList.remove('hidden');
+  renderShiftBoard();
+}
+
+function openOccupiedCellMenu(slotId, assignmentId) {
+  if (!confirm('このシフト割り当てを解除しますか？')) return;
+  apiFetch(`/api/assignments/${assignmentId}`, { method: 'DELETE' })
+    .then(() => loadShifts())
+    .catch(err => showToast(err.message, true));
+}
+
+$('btn-board-slot-cancel').addEventListener('click', () => {
+  $('modal-board-slot').classList.add('hidden');
+  pendingBoardSlot = null;
+});
+$('board-slot-overlay').addEventListener('click', () => {
+  $('modal-board-slot').classList.add('hidden');
+  pendingBoardSlot = null;
+});
+$('btn-cancel-board-select').addEventListener('click', () => {
+  boardSelectStart = null; boardHoverTime = null;
+  updateBoardHint(); renderShiftBoard();
+});
+
+$('btn-board-slot-submit').addEventListener('click', async () => {
+  if (!pendingBoardSlot) return;
+  const errEl = $('board-slot-error');
+  errEl.classList.add('hidden');
+  try {
+    const slot = await apiFetch(`/api/events/${EVENT_ID}/slots`, {
+      method: 'POST',
+      body: JSON.stringify({
+        date: currentDay,
+        start_time: pendingBoardSlot.startTime,
+        end_time: pendingBoardSlot.endTime,
+        role: $('board-slot-role').value.trim(),
+        required_count: parseInt($('board-slot-count').value) || 1,
+      }),
+    });
+    await apiFetch(`/api/events/${EVENT_ID}/slots/${slot.id}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ member_id: pendingBoardSlot.memberId }),
+    });
+    $('modal-board-slot').classList.add('hidden');
+    pendingBoardSlot = null;
+    await loadShifts();
+    showToast('シフトを登録しました');
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.classList.remove('hidden');
+  }
+});
+
+document.querySelectorAll('.interval-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    intervalMin = parseInt(btn.dataset.min);
+    document.querySelectorAll('.interval-btn').forEach(b => {
+      const active = b === btn;
+      b.classList.toggle('bg-primary', active);
+      b.classList.toggle('text-white', active);
+      b.classList.toggle('bg-white', !active);
+      b.classList.toggle('text-gray-600', !active);
+    });
+    boardSelectStart = null; boardHoverTime = null;
+    updateBoardHint(); renderShiftBoard();
+  });
+});
 
 // ─── Add Slot Modal ───────────────────────────────────────────────────────────
 const modalSlot = $('modal-add-slot');
