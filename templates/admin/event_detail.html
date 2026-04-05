@@ -258,16 +258,38 @@
             </div>
             <div id="workload-list" class="flex-1 overflow-y-auto px-2 py-2 space-y-1.5"></div>
           </div>
+          <!-- 仕事分担サイドバー -->
+          <div id="job-dist-panel" class="hidden flex-shrink-0 w-52 border-l border-gray-100 bg-white flex flex-col overflow-hidden">
+            <div class="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
+              <span class="text-[11px] font-bold text-gray-600">仕事分担</span>
+              <button id="btn-close-job-dist" class="text-gray-300 hover:text-gray-500 transition-colors">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+              </button>
+            </div>
+            <div id="job-dist-list" class="flex-1 overflow-y-auto px-2 py-2"></div>
+          </div>
         </div>
-        <!-- 工数パネル開くボタン -->
-        <button id="btn-open-workload"
-          class="fixed bottom-5 right-5 z-40 flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 rounded-xl shadow-lg text-xs font-medium text-gray-600 hover:bg-surface transition-colors">
-          <svg class="w-3.5 h-3.5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-          </svg>
-          公平性
-        </button>
+        <!-- 右下フローティングボタン群 -->
+        <div class="fixed bottom-5 right-5 z-40 flex flex-col gap-2 items-end">
+          <button id="btn-open-workload"
+            class="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 rounded-xl shadow-lg text-xs font-medium text-gray-600 hover:bg-surface transition-colors">
+            <svg class="w-3.5 h-3.5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+            </svg>
+            公平性
+          </button>
+          <button id="btn-open-job-dist"
+            class="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 rounded-xl shadow-lg text-xs font-medium text-gray-600 hover:bg-surface transition-colors">
+            <svg class="w-3.5 h-3.5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
+            </svg>
+            仕事分担
+          </button>
+        </div>
       </div>
 
       <!-- 仕事タブ -->
@@ -735,19 +757,19 @@
   </div>
 </div>
 
-<!-- 仕事追加モーダル -->
+<!-- 仕事追加・編集モーダル -->
 <div id="modal-add-job" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
   <div class="absolute inset-0 bg-black/40 backdrop-blur-sm job-modal-close"></div>
-  <div class="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-    <div class="flex items-center justify-between mb-5">
-      <h3 class="text-lg font-bold text-gray-900">仕事を追加</h3>
+  <div class="relative bg-white rounded-2xl shadow-xl w-full max-w-lg flex flex-col" style="max-height:90vh">
+    <div class="flex items-center justify-between px-6 pt-6 pb-4 flex-shrink-0">
+      <h3 id="modal-job-title" class="text-lg font-bold text-gray-900">仕事を追加</h3>
       <button class="job-modal-close text-gray-400 hover:text-gray-600">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
         </svg>
       </button>
     </div>
-    <form id="form-add-job" class="space-y-4">
+    <form id="form-add-job" class="overflow-y-auto px-6 pb-6 space-y-4">
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1.5">仕事タイトル <span class="text-red-400">*</span></label>
         <input type="text" id="job-title" required placeholder="例: 受付"
@@ -758,22 +780,48 @@
         <textarea id="job-description" rows="2" placeholder="例: 来場者の誘導・案内を行う"
           class="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"></textarea>
       </div>
-      <div class="grid grid-cols-2 gap-3">
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1.5">集合場所</label>
-          <input type="text" id="job-location" placeholder="例: 正門前"
-            class="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"/>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1.5">集合場所</label>
+        <input type="text" id="job-location" placeholder="例: 正門前"
+          class="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"/>
+      </div>
+      <!-- 時間ごとの必要人数 -->
+      <div class="border-t border-gray-100 pt-4">
+        <label class="block text-sm font-medium text-gray-700 mb-2">時間ごとの必要人数</label>
+        <div class="flex gap-1 mb-3 flex-wrap">
+          <button type="button" class="job-req-interval px-2.5 py-1 text-xs font-medium rounded-md bg-primary text-white" data-min="">全時間同じ</button>
+          <button type="button" class="job-req-interval px-2.5 py-1 text-xs font-medium rounded-md text-gray-500 border border-gray-200 hover:bg-gray-50" data-min="60">60分ごと</button>
+          <button type="button" class="job-req-interval px-2.5 py-1 text-xs font-medium rounded-md text-gray-500 border border-gray-200 hover:bg-gray-50" data-min="30">30分ごと</button>
+          <button type="button" class="job-req-interval px-2.5 py-1 text-xs font-medium rounded-md text-gray-500 border border-gray-200 hover:bg-gray-50" data-min="15">15分ごと</button>
         </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1.5">担当目安人数</label>
-          <input type="number" id="job-count" value="1" min="1"
-            class="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"/>
+        <!-- 全時間同じ -->
+        <div id="job-req-uniform">
+          <div class="flex items-center gap-3">
+            <label class="text-xs text-gray-500">全時間帯の必要人数</label>
+            <input type="number" id="job-count" value="1" min="0"
+              class="w-20 px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"/>
+            <span class="text-xs text-gray-400">人</span>
+          </div>
+        </div>
+        <!-- 時間別入力 -->
+        <div id="job-req-timed" class="hidden">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="text-xs text-gray-400 flex-1">0人の時間帯はスキップされます</span>
+            <span class="text-xs text-gray-500">一括</span>
+            <input type="number" id="job-req-bulk" min="0" max="99" placeholder="人数"
+              class="w-16 px-2 py-1 border border-gray-200 rounded text-xs text-center focus:outline-none focus:border-primary"/>
+            <button type="button" id="btn-job-req-bulk"
+              class="px-2 py-1 text-xs font-medium bg-primary text-white rounded hover:bg-primary-dark transition-colors">
+              適用
+            </button>
+          </div>
+          <div id="job-req-timed-inputs" class="grid grid-cols-2 gap-x-4 gap-y-1 max-h-52 overflow-y-auto pr-1"></div>
         </div>
       </div>
       <div id="job-error" class="hidden text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg"></div>
-      <div class="flex gap-3">
+      <div class="flex gap-3 pt-1">
         <button type="button" class="job-modal-close flex-1 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">キャンセル</button>
-        <button type="submit" class="flex-1 py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark">追加する</button>
+        <button type="submit" id="btn-job-submit" class="flex-1 py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark">追加する</button>
       </div>
     </form>
   </div>

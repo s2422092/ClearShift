@@ -169,7 +169,17 @@ class JobType(db.Model):
     location = db.Column(db.String(200))
     required_count = db.Column(db.Integer, default=1)
     color = db.Column(db.String(7), nullable=False, default='#4DA3FF')
+    requirements_json = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def get_requirements(self):
+        import json
+        if self.requirements_json:
+            try:
+                return json.loads(self.requirements_json)
+            except Exception:
+                return None
+        return None
 
     def to_dict(self):
         return {
@@ -180,6 +190,7 @@ class JobType(db.Model):
             'location': self.location,
             'required_count': self.required_count,
             'color': self.color,
+            'requirements': self.get_requirements(),
         }
 
 

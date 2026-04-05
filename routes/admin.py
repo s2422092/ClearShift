@@ -558,6 +558,7 @@ def api_create_job(event_id):
 @admin_bp.route('/api/events/<int:event_id>/jobs/<int:job_id>', methods=['PATCH'])
 @login_required
 def api_update_job(event_id, job_id):
+    import json as _json
     _can_access_event(event_id)
     job = JobType.query.filter_by(id=job_id, event_id=event_id).first_or_404()
     data = request.get_json()
@@ -566,6 +567,20 @@ def api_update_job(event_id, job_id):
         if not color.startswith('#') or len(color) not in (4, 7):
             return jsonify({'error': '無効なカラーコードです。'}), 400
         job.color = color
+    if 'title' in data:
+        title = (data['title'] or '').strip()
+        if not title:
+            return jsonify({'error': '仕事タイトルを入力してください。'}), 400
+        job.title = title
+    if 'description' in data:
+        job.description = (data.get('description') or '').strip() or None
+    if 'location' in data:
+        job.location = (data.get('location') or '').strip() or None
+    if 'required_count' in data:
+        job.required_count = int(data.get('required_count') or 1)
+    if 'requirements' in data:
+        req = data['requirements']
+        job.requirements_json = _json.dumps(req) if req else None
     db.session.commit()
     return jsonify(job.to_dict())
 
