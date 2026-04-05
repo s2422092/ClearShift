@@ -90,6 +90,9 @@ def create_app():
             conn.execute(text(
                 "ALTER TABLE shift_assignments ADD COLUMN IF NOT EXISTS reported_at TIMESTAMP"
             ))
+            conn.execute(text(
+                "ALTER TABLE shift_assignments ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP"
+            ))
             conn.commit()
 
     return app

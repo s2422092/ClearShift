@@ -1871,15 +1871,21 @@ async function downloadShiftBoardPDF() {
 $('btn-download-pdf')?.addEventListener('click', downloadShiftBoardPDF);
 
 // ─── Notifications ────────────────────────────────────────────────────────────
-const STATUS_JP = { absent: '欠席', late: '遅刻' };
+const STATUS_JP = { absent: '不在', late: '遅刻' };
 const STATUS_COLOR_NOTIF = { absent: '#EF4444', late: '#F59E0B' };
 
 async function loadNotifications() {
   try {
-    const data = await apiFetch(`/api/events/${EVENT_ID}/notifications`);
+    const raw = await apiFetch(`/api/events/${EVENT_ID}/notifications`);
+    // 未対応を上、対応済みを下に並べる
+    const data = [
+      ...raw.filter(n => !n.resolved),
+      ...raw.filter(n =>  n.resolved),
+    ];
+    const unresolved = data.filter(n => !n.resolved);
     const badge = $('notif-badge');
-    if (data.length > 0) {
-      badge.textContent = data.length > 99 ? '99+' : data.length;
+    if (unresolved.length > 0) {
+      badge.textContent = unresolved.length > 99 ? '99+' : unresolved.length;
       badge.classList.remove('hidden');
     } else {
       badge.classList.add('hidden');
@@ -1895,7 +1901,7 @@ function renderNotifList(items) {
     return;
   }
   list.innerHTML = items.map(n => {
-    const color = STATUS_COLOR_NOTIF[n.status] || '#6B7280';
+    const color = n.resolved ? '#9CA3AF' : (STATUS_COLOR_NOTIF[n.status] || '#6B7280');
     const label = STATUS_JP[n.status] || n.status;
     const d = new Date(n.date + 'T00:00:00');
     const dateStr = d.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' });
@@ -1903,7 +1909,7 @@ function renderNotifList(items) {
       ? new Date(n.reported_at).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
       : '';
     return `
-      <div class="px-4 py-3">
+      <div class="px-4 py-3 ${n.resolved ? 'opacity-50' : ''}">
         <div class="flex items-start gap-3">
           <div class="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style="background:${color}"></div>
           <div class="flex-1 min-w-0">
@@ -1912,13 +1918,32 @@ function renderNotifList(items) {
               ${n.member_department ? `<span class="text-xs text-gray-400">${n.member_department}</span>` : ''}
               <span class="text-xs font-bold px-1.5 py-0.5 rounded-full text-white" style="background:${color}">${label}</span>
             </div>
-            <div class="text-xs text-gray-600 mt-0.5">${dateStr} &nbsp;${n.start_time}〜${n.end_time}${n.role ? ' &nbsp;' + n.role : ''}</div>
-            ${n.note ? `<div class="text-xs text-gray-400 mt-0.5 truncate">${n.note}</div>` : ''}
+            <div class="text-xs text-gray-600 mt-0.5">${dateStr}&nbsp;${n.start_time}〜${n.end_time}${n.role ? '&nbsp;' + n.role : ''}${n.location ? '&nbsp;@' + n.location : ''}</div>
+            ${n.note ? `<div class="text-xs text-gray-400 mt-0.5">${n.note}</div>` : ''}
             ${reportedAt ? `<div class="text-[10px] text-gray-300 mt-0.5">${reportedAt} 報告</div>` : ''}
+            ${n.resolved
+              ? `<div class="text-[10px] text-green-500 font-medium mt-1.5">✓ 対応済み</div>`
+              : `<button class="btn-resolve mt-2 w-full py-1.5 text-xs font-semibold rounded-lg border border-green-300 text-green-600 hover:bg-green-50 transition-colors"
+                  data-aid="${n.assignment_id}">✓ 対応完了</button>`}
           </div>
         </div>
       </div>`;
-  }).join('');
+  }).join('<div class="border-t border-gray-50 mx-4"></div>');
+
+  list.querySelectorAll('.btn-resolve').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const aid = btn.dataset.aid;
+      btn.disabled = true;
+      btn.textContent = '処理中...';
+      try {
+        await fetch(`/api/events/${EVENT_ID}/notifications/${aid}/resolve`, { method: 'POST' });
+        await loadNotifications();
+      } catch {
+        btn.disabled = false;
+        btn.textContent = '✓ 対応完了';
+      }
+    });
+  });
 }
 
 const btnNotif  = $('btn-notifications');

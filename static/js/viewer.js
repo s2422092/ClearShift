@@ -239,39 +239,60 @@ function renderMyShifts() {
 
   // ペア欠席報告ボタン
   list.querySelectorAll('.partner-absent-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
+    btn.addEventListener('click', (e) => {
       e.stopPropagation();
       if (btn.textContent.trim() === '報告済み') return;
-      const slotId    = parseInt(btn.dataset.slot);
-      const memberId  = parseInt(btn.dataset.member);
-      const name      = btn.dataset.name;
-      if (!confirm(`${name} さんが来ていないことを報告しますか？`)) return;
-      btn.disabled = true;
-      try {
-        const res = await fetch(`/event/${EVENT_ID}/api/report-partner-absent`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ slot_id: slotId, member_id: memberId }),
-        });
-        if (!res.ok) throw new Error();
-        // ローカル状態を更新して再描画
-        const shift = myShifts.find(s => s.slot_id === slotId);
-        if (shift && shift.colleagues) {
-          const col = shift.colleagues.find(c => c.member_id === memberId);
-          if (col) col.status = 'absent';
-        }
-        renderMyShifts();
-        showReportToast('partner');
-      } catch {
-        btn.disabled = false;
-        alert('送信に失敗しました。');
-      }
+      showAbsentConfirm(
+        btn.dataset.name,
+        parseInt(btn.dataset.slot),
+        parseInt(btn.dataset.member),
+      );
     });
   });
 }
 
+// ── 欠席確認モーダル ──────────────────────────────────────────────────────────
+let _absentConfirmCallback = null;
+
+function showAbsentConfirm(name, slotId, memberId) {
+  $('confirm-absent-msg').textContent = `${name} さんが来ていないことを報告しますか？`;
+  $('modal-confirm-absent').classList.remove('hidden');
+  _absentConfirmCallback = async () => {
+    $('modal-confirm-absent').classList.add('hidden');
+    try {
+      const res = await fetch(`/event/${EVENT_ID}/api/report-partner-absent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slot_id: slotId, member_id: memberId }),
+      });
+      if (!res.ok) throw new Error();
+      const shift = myShifts.find(s => s.slot_id === slotId);
+      if (shift && shift.colleagues) {
+        const col = shift.colleagues.find(c => c.member_id === memberId);
+        if (col) col.status = 'absent';
+      }
+      renderMyShifts();
+      showReportToast('partner');
+    } catch {
+      alert('送信に失敗しました。');
+    }
+  };
+}
+
+$('btn-confirm-absent-ok')?.addEventListener('click', () => {
+  if (_absentConfirmCallback) { _absentConfirmCallback(); _absentConfirmCallback = null; }
+});
+
+function closeAbsentConfirm() {
+  $('modal-confirm-absent').classList.add('hidden');
+  _absentConfirmCallback = null;
+}
+
+$('btn-confirm-absent-cancel')?.addEventListener('click', closeAbsentConfirm);
+$('confirm-absent-overlay')?.addEventListener('click', closeAbsentConfirm);
+
 function showReportToast(status) {
-  const msg = status === 'partner' ? '欠席を管理者に報告しました' : status === 'absent' ? '欠席を報告しました' : status === 'late' ? '遅刻を報告しました' : '報告を取り消しました';
+  const msg = status === 'partner' ? '不在を管理者に報告しました' : status === 'absent' ? '欠席を報告しました' : status === 'late' ? '遅刻を報告しました' : '報告を取り消しました';
   const bg  = status === 'partner' ? '#EF4444' : status === 'absent' ? '#EF4444' : status === 'late' ? '#F59E0B' : '#6B7280';
   const toast = document.createElement('div');
   toast.className = 'fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl text-sm font-medium text-white shadow-lg transition-opacity';

@@ -751,15 +751,17 @@ def api_availabilities(event_id):
 @login_required
 def api_notifications(event_id):
     _can_access_event(event_id)
+    today = date.today()
     assignments = (
         ShiftAssignment.query
         .join(ShiftSlot)
         .filter(
             ShiftSlot.event_id == event_id,
+            ShiftSlot.date >= today,
             ShiftAssignment.status.in_(['absent', 'late']),
             ShiftAssignment.reported_at.isnot(None),
         )
-        .order_by(ShiftAssignment.reported_at.desc())
+        .order_by(ShiftAssignment.resolved_at.asc().nullsfirst(), ShiftAssignment.reported_at.desc())
         .all()
     )
     jobs = {j.id: j for j in JobType.query.filter_by(event_id=event_id).all()}
@@ -777,9 +779,24 @@ def api_notifications(event_id):
             'start_time': slot.start_time.strftime('%H:%M'),
             'end_time': slot.end_time.strftime('%H:%M'),
             'role': slot.role or '',
+            'location': slot.location or '',
             'status': a.status,
             'note': a.note or '',
             'reported_at': a.reported_at.isoformat() if a.reported_at else None,
+            'resolved': a.resolved_at is not None,
             'job_color': job.color if job else '#4DA3FF',
         })
     return jsonify(result)
+
+
+@admin_bp.route('/api/events/<int:event_id>/notifications/<int:assignment_id>/resolve', methods=['POST'])
+@login_required
+def api_resolve_notification(event_id, assignment_id):
+    _can_access_event(event_id)
+    a = ShiftAssignment.query.join(ShiftSlot).filter(
+        ShiftAssignment.id == assignment_id,
+        ShiftSlot.event_id == event_id,
+    ).first_or_404()
+    a.resolved_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'ok': True})

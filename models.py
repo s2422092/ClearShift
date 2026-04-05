@@ -143,6 +143,7 @@ class ShiftAssignment(db.Model):
     status = db.Column(db.String(50), default='scheduled')  # scheduled, absent, late
     note = db.Column(db.Text)
     reported_at = db.Column(db.DateTime, nullable=True)
+    resolved_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
