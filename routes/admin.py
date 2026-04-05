@@ -399,6 +399,39 @@ def api_update_member(event_id, member_id):
     return jsonify(member.to_dict())
 
 
+@admin_bp.route('/api/events/<int:event_id>/members/<int:member_id>/shifts', methods=['DELETE'])
+@login_required
+def api_delete_member_shifts(event_id, member_id):
+    """メンバーのシフト割り当てを一括削除（日付・時間範囲でフィルタ可能）"""
+    _can_access_event(event_id)
+    EventMember.query.filter_by(id=member_id, event_id=event_id).first_or_404()
+
+    data = request.get_json() or {}
+    date_str       = data.get('date')
+    start_time_str = data.get('start_time')
+    end_time_str   = data.get('end_time')
+
+    query = ShiftAssignment.query.filter_by(member_id=member_id).join(ShiftSlot).filter(
+        ShiftSlot.event_id == event_id
+    )
+    if date_str:
+        query = query.filter(ShiftSlot.date == date.fromisoformat(date_str))
+    if start_time_str and end_time_str:
+        from datetime import time as time_type
+        sp = start_time_str.split(':')
+        ep = end_time_str.split(':')
+        start_t = time_type(int(sp[0]), int(sp[1]))
+        end_t   = time_type(int(ep[0]), int(ep[1]))
+        # 指定範囲と重なるスロット（開始 < end_t かつ 終了 > start_t）
+        query = query.filter(ShiftSlot.start_time < end_t, ShiftSlot.end_time > start_t)
+
+    assignments = query.all()
+    for a in assignments:
+        db.session.delete(a)
+    db.session.commit()
+    return jsonify({'ok': True, 'deleted': len(assignments)})
+
+
 @admin_bp.route('/api/events/<int:event_id>/members/<int:src_id>/copy-to/<int:dst_id>', methods=['POST'])
 @login_required
 def api_copy_shifts(event_id, src_id, dst_id):

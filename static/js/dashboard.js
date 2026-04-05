@@ -389,6 +389,8 @@ let pendingBoardSlot = null;  // 新規登録用
 let editingSlot = null;       // 編集モード用 { slotId, assignmentId, memberId }
 let boardSearchQuery = '';    // 名前検索
 let copySourceMemberId = null; // コピー元メンバーID
+let bulkDeleteMode = false;   // 一括削除モード
+let bulkDeleteSelected = new Set(); // 選択中の assignmentId
 
 const BOARD_START_H = 8;
 const BOARD_END_H   = 22;
@@ -590,13 +592,17 @@ function renderShiftBoard() {
         const cb = colBorder(col);
 
         if (cell) {
-          let bg = slotColor(cell.jobColor, cell.status);
-          if (m.is_leader) bg = slotColor(cell.jobColor === '#4DA3FF' ? '#EAB308' : cell.jobColor, cell.status);
-          const border = cell.isFirst ? `border-left: 3px solid ${cell.jobColor};` : '';
-          const roleText = cell.isFirst && cell.role
-            ? `<span class="absolute inset-0 flex items-center px-1 text-[9px] font-semibold overflow-hidden whitespace-nowrap pointer-events-none" style="color:${cell.jobColor}">${cell.role}</span>`
+          const isSelected = bulkDeleteSelected.has(cell.assignmentId);
+          let bg = isSelected ? 'rgba(239,68,68,0.35)' : slotColor(cell.jobColor, cell.status);
+          if (!isSelected && m.is_leader) bg = slotColor(cell.jobColor === '#4DA3FF' ? '#EAB308' : cell.jobColor, cell.status);
+          const border = cell.isFirst
+            ? `border-left: 3px solid ${isSelected ? '#EF4444' : cell.jobColor};`
             : '';
-          return `<td style="min-width:${cw}px;width:${cw}px;background:${bg};${border}"
+          const roleText = cell.isFirst && cell.role
+            ? `<span class="absolute inset-0 flex items-center px-1 text-[9px] font-semibold overflow-hidden whitespace-nowrap pointer-events-none" style="color:${isSelected ? '#EF4444' : cell.jobColor}">${cell.role}</span>`
+            : '';
+          const selectedRing = isSelected ? 'outline:2px solid #EF4444;outline-offset:-2px;' : '';
+          return `<td style="min-width:${cw}px;width:${cw}px;background:${bg};${border}${selectedRing}"
             class="board-cell-occupied relative h-9 cursor-pointer border-b border-b-white/30 ${cb}"
             data-slot="${cell.slotId}" data-aid="${cell.assignmentId}" data-member="${m.id}" data-time="${col}">${roleText}</td>`;
         }
@@ -615,7 +621,8 @@ function renderShiftBoard() {
                      : leaderBg;
 
       return `<tr style="${leaderBg}${dimStyle}${hlStyle}${copyStyle}" data-member-row="${m.id}">
-        <td class="sticky left-0 z-10 border-r border-b border-gray-100 px-2 py-1 whitespace-nowrap select-none"
+        <td class="btn-member-row-action sticky left-0 z-10 border-r border-b border-gray-100 px-2 py-1 whitespace-nowrap select-none cursor-pointer hover:brightness-95"
+          data-mid="${m.id}"
           style="min-width:140px;${stickyBg}${dimStyle}">
           <div class="flex items-center gap-1.5">
             ${m.is_leader ? '<span class="text-yellow-400 text-xs">★</span>' : ''}
@@ -669,6 +676,7 @@ function renderShiftBoard() {
 
   board.querySelectorAll('.board-cell').forEach(cell => {
     cell.addEventListener('click', (e) => {
+      if (bulkDeleteMode) return; // 一括削除モード中は空セルクリック無効
       if (isCopyMode && copySourceMemberId !== parseInt(cell.dataset.member)) {
         e.stopPropagation();
         handleBoardCopyClick(parseInt(cell.dataset.member));
@@ -686,6 +694,20 @@ function renderShiftBoard() {
 
   board.querySelectorAll('.board-cell-occupied').forEach(cell => {
     cell.addEventListener('click', (e) => {
+      // 一括削除モード：1マスクリックでそのシフト全体を選択/解除
+      if (bulkDeleteMode) {
+        e.stopPropagation();
+        const aid = parseInt(cell.dataset.aid);
+        if (bulkDeleteSelected.has(aid)) {
+          bulkDeleteSelected.delete(aid);
+        } else {
+          bulkDeleteSelected.add(aid);
+        }
+        updateBulkDeleteBanner();
+        renderShiftBoard(); // 全セル再描画でシフト全体をハイライト
+        return;
+      }
+      // コピーモード
       if (isCopyMode) {
         const targetMid = parseInt(cell.dataset.member);
         if (targetMid !== copySourceMemberId) {
@@ -725,8 +747,19 @@ function renderShiftBoard() {
     });
   });
 
+  // メンバー名セルクリック（コピーモード時のみコピー対象として機能）
+  board.querySelectorAll('.btn-member-row-action').forEach(td => {
+    td.addEventListener('click', (e) => {
+      if (!isCopyMode) return;
+      const targetMid = parseInt(td.dataset.mid);
+      if (targetMid !== copySourceMemberId) handleBoardCopyClick(targetMid);
+    });
+  });
+
   updateBoardHighlight();
 }
+
+
 
 function clearBoardSearch() {
   if (!boardSearchQuery) return;
@@ -835,7 +868,16 @@ function openBoardSlotModal(memberId, startTime, endTime) {
   pendingBoardSlot = { memberId, startTime, endTime };
   editingSlot = null;
 
-  // 新規モードのUI設定
+  // 選択範囲内に既存シフトがあるか確認
+  const startM = timeToMin(startTime);
+  const endM   = timeToMin(endTime);
+  const rangeSlots = slots.filter(s =>
+    s.date === currentDay &&
+    s.assignments.some(a => a.member_id === memberId) &&
+    timeToMin(s.start_time) < endM && timeToMin(s.end_time) > startM
+  );
+  const hasShiftsInRange = rangeSlots.length > 0;
+
   $('board-slot-title').textContent = 'シフトを登録';
   $('btn-board-slot-delete').classList.add('hidden');
   $('btn-board-slot-submit').textContent = '登録する';
@@ -844,6 +886,9 @@ function openBoardSlotModal(memberId, startTime, endTime) {
     <div class="flex justify-between text-xs"><span class="text-gray-500">メンバー</span><span class="font-semibold text-gray-800">${m?.name || ''}</span></div>
     <div class="flex justify-between text-xs"><span class="text-gray-500">日付</span><span class="font-semibold text-gray-800">${fmtDate(currentDay)}</span></div>
     <div class="flex justify-between text-xs"><span class="text-gray-500">時間</span><span class="font-semibold text-gray-800">${startTime} 〜 ${endTime}</span></div>`;
+
+  // 前回の範囲削除ボタンが残っていれば除去
+  $('btn-range-delete-trigger')?.remove();
 
   populateJobSelect(null);
   $('board-slot-error').classList.add('hidden');
@@ -860,12 +905,21 @@ function closeBoardSlotModal() {
 function showBoardSlotMain() {
   $('board-slot-main').classList.remove('hidden');
   $('board-slot-delete-confirm').classList.add('hidden');
+  $('board-slot-range-confirm').classList.add('hidden');
 }
 
 function showBoardSlotDeleteConfirm(desc) {
   $('board-slot-delete-desc').textContent = desc;
   $('board-slot-main').classList.add('hidden');
   $('board-slot-delete-confirm').classList.remove('hidden');
+  $('board-slot-range-confirm').classList.add('hidden');
+}
+
+function showBoardSlotRangeConfirm(desc) {
+  $('board-slot-range-desc').textContent = desc;
+  $('board-slot-main').classList.add('hidden');
+  $('board-slot-delete-confirm').classList.add('hidden');
+  $('board-slot-range-confirm').classList.remove('hidden');
 }
 
 // 共通：仕事ドロップダウンを更新し、選択済みの job をハイライト
@@ -907,8 +961,8 @@ function openOccupiedCellMenu(slotId, assignmentId) {
   pendingBoardSlot = null;
 
   // タイトル・削除ボタンを編集モードに切替
-  $('board-slot-title').textContent = 'シフトの詳細';
-  $('btn-board-slot-delete').classList.remove('hidden');
+  $('board-slot-title').textContent = 'シフトの詳細・変更';
+  $('btn-board-slot-delete').classList.add('hidden'); // 削除は一括削除モードで行う
   $('btn-board-slot-submit').textContent = '変更を保存';
 
   // シフト情報表示
@@ -935,6 +989,21 @@ $('btn-board-slot-delete').addEventListener('click', () => {
 });
 
 $('btn-delete-cancel').addEventListener('click', showBoardSlotMain);
+$('btn-range-delete-cancel').addEventListener('click', showBoardSlotMain);
+
+$('btn-range-delete-confirm').addEventListener('click', async () => {
+  if (!pendingBoardSlot) return;
+  const { memberId, startTime, endTime } = pendingBoardSlot;
+  try {
+    const res = await apiFetch(`/api/events/${EVENT_ID}/members/${memberId}/shifts`, {
+      method: 'DELETE',
+      body: JSON.stringify({ date: currentDay, start_time: startTime, end_time: endTime }),
+    });
+    closeBoardSlotModal();
+    await loadShifts();
+    showToast(`${res.deleted}件のシフトを削除しました`);
+  } catch (err) { showToast(err.message, true); }
+});
 
 $('btn-delete-confirm').addEventListener('click', async () => {
   if (!editingSlot) return;
@@ -953,6 +1022,54 @@ $('btn-cancel-copy').addEventListener('click', () => {
   copySourceMemberId = null;
   updateBoardHint();
   renderShiftBoard();
+});
+
+// ─── 一括削除モード ───────────────────────────────────────────────────────────
+function updateBulkDeleteBanner() {
+  const n = bulkDeleteSelected.size;
+  $('bulk-delete-count').textContent = `${n}件`;
+  const btn = $('btn-bulk-delete-exec');
+  btn.disabled = n === 0;
+}
+
+function enterBulkDeleteMode() {
+  bulkDeleteMode = true;
+  bulkDeleteSelected.clear();
+  copySourceMemberId = null;
+  boardSelectStart = null;
+  $('bulk-delete-banner').classList.remove('hidden');
+  $('btn-bulk-delete-mode').classList.add('bg-red-50', 'text-red-500', 'border-red-300');
+  $('btn-bulk-delete-mode').classList.remove('text-gray-500', 'border-gray-200');
+  updateBulkDeleteBanner();
+  renderShiftBoard();
+}
+
+function exitBulkDeleteMode() {
+  bulkDeleteMode = false;
+  bulkDeleteSelected.clear();
+  $('bulk-delete-banner').classList.add('hidden');
+  $('btn-bulk-delete-mode').classList.remove('bg-red-50', 'text-red-500', 'border-red-300');
+  $('btn-bulk-delete-mode').classList.add('text-gray-500', 'border-gray-200');
+  renderShiftBoard();
+}
+
+$('btn-bulk-delete-mode').addEventListener('click', () => {
+  bulkDeleteMode ? exitBulkDeleteMode() : enterBulkDeleteMode();
+});
+
+$('btn-bulk-delete-cancel').addEventListener('click', exitBulkDeleteMode);
+
+$('btn-bulk-delete-exec').addEventListener('click', async () => {
+  if (!bulkDeleteSelected.size) return;
+  const ids = [...bulkDeleteSelected];
+  try {
+    await Promise.all(ids.map(aid =>
+      apiFetch(`/api/assignments/${aid}`, { method: 'DELETE' })
+    ));
+    exitBulkDeleteMode();
+    await loadShifts();
+    showToast(`${ids.length}件のシフトを削除しました`);
+  } catch (err) { showToast(err.message, true); }
 });
 
 $('btn-board-slot-submit').addEventListener('click', async () => {

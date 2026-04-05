@@ -147,6 +147,14 @@
               </svg>
               枠を追加
             </button>
+            <button id="btn-bulk-delete-mode"
+              class="flex items-center gap-1 px-2.5 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition-colors whitespace-nowrap">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+              </svg>
+              一括削除
+            </button>
           </div>
         </div>
         <!-- 選択ヒント（通常モード） -->
@@ -177,6 +185,22 @@
             </svg>
             解除
           </button>
+        </div>
+        <!-- 一括削除バナー -->
+        <div id="bulk-delete-banner" class="hidden border-b border-red-200 px-4 py-2 flex items-center gap-3 flex-shrink-0" style="background:#FFF5F5">
+          <svg class="w-4 h-4 flex-shrink-0 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+          </svg>
+          <span class="text-xs text-red-600 flex-1">
+            シフトをクリックして選択 —
+            <span id="bulk-delete-count" class="font-bold">0件</span>選択中
+          </span>
+          <button id="btn-bulk-delete-exec"
+            class="px-3 py-1 text-xs font-medium bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+            disabled>削除する</button>
+          <button id="btn-bulk-delete-cancel"
+            class="text-xs text-red-400 hover:text-red-600 font-medium flex-shrink-0">キャンセル</button>
         </div>
         <!-- グリッド -->
         <div class="flex-1 overflow-auto" id="shift-board-container">
@@ -731,7 +755,7 @@
       </div>
     </div>
 
-    <!-- 削除確認ビュー -->
+    <!-- 削除確認ビュー（単体） -->
     <div id="board-slot-delete-confirm" class="hidden">
       <div class="flex flex-col items-center text-center py-2">
         <div class="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center mb-3">
@@ -749,8 +773,27 @@
       </div>
     </div>
 
+    <!-- 範囲削除確認ビュー -->
+    <div id="board-slot-range-confirm" class="hidden">
+      <div class="flex flex-col items-center text-center py-2">
+        <div class="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center mb-3">
+          <svg class="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+          </svg>
+        </div>
+        <p class="text-sm font-semibold text-gray-800 mb-1">範囲内のシフトをまとめて削除しますか？</p>
+        <p id="board-slot-range-desc" class="text-xs text-gray-400 mb-5"></p>
+      </div>
+      <div class="flex gap-3">
+        <button id="btn-range-delete-cancel" class="flex-1 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">やめる</button>
+        <button id="btn-range-delete-confirm" class="flex-1 py-2.5 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600">まとめて削除</button>
+      </div>
+    </div>
+
   </div>
 </div>
+
 
 <script>
 const EVENT_ID = {{ event.id }};
