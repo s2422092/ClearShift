@@ -752,6 +752,7 @@ def api_availabilities(event_id):
 def api_notifications(event_id):
     _can_access_event(event_id)
     today = date.today()
+    hide_resolved_before = datetime.utcnow() - timedelta(minutes=15)
     assignments = (
         ShiftAssignment.query
         .join(ShiftSlot)
@@ -760,6 +761,10 @@ def api_notifications(event_id):
             ShiftSlot.date >= today,
             ShiftAssignment.status.in_(['absent', 'late']),
             ShiftAssignment.reported_at.isnot(None),
+            db.or_(
+                ShiftAssignment.resolved_at.is_(None),
+                ShiftAssignment.resolved_at >= hide_resolved_before,
+            ),
         )
         .order_by(ShiftAssignment.resolved_at.asc().nullsfirst(), ShiftAssignment.reported_at.desc())
         .all()
