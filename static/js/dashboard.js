@@ -469,6 +469,7 @@ function renderDayTabs() {
       currentDay = btn.dataset.date;
       boardSelectStart = null; boardHoverTime = null;
       updateBoardHint(); renderDayTabs(); renderShiftBoard();
+      if (!$('workload-panel').classList.contains('hidden')) renderWorkloadPanel();
     });
   });
 }
@@ -1706,9 +1707,10 @@ $('board-search')?.addEventListener('keydown', e => {
 // ─── Workload Panel ───────────────────────────────────────────────────────────
 let workloadScope = 'day'; // 'day' | 'all'
 
+const DAY_TOTAL_MIN = (22 - 8) * 60; // 8:00〜22:00 = 840分
+
 function calcWorkload(scope) {
-  // メンバーごとの仕事時間(分)を集計
-  const workMin = {}; // memberId → 仕事分数
+  const workMin = {};
   members.forEach(m => { workMin[m.id] = 0; });
 
   const targetSlots = scope === 'day'
@@ -1722,17 +1724,17 @@ function calcWorkload(scope) {
     });
   });
 
-  // 全体の最大値（バー幅の基準）
-  const maxMin = Math.max(...Object.values(workMin), 1);
+  // 1日あたりの総時間（スコープに応じた日数分）
+  const dayCount = scope === 'day' ? 1 : Math.max(eventDates.length, 1);
+  const totalAvailMin = DAY_TOTAL_MIN * dayCount;
 
   return members.map(m => ({
     id: m.id,
     name: m.name,
-    department: m.department || '',
-    grade: m.grade || '',
     is_leader: m.is_leader,
     workMin: workMin[m.id] || 0,
-    maxMin,
+    breakMin: Math.max(0, totalAvailMin - (workMin[m.id] || 0)),
+    totalAvailMin,
   })).sort((a, b) => b.workMin - a.workMin);
 }
 
@@ -1753,48 +1755,27 @@ function renderWorkloadPanel() {
     return;
   }
 
-  const maxMin = data[0].maxMin;
-  // 平均と最大・最小
-  const total = data.reduce((s, d) => s + d.workMin, 0);
-  const avg   = Math.round(total / data.length);
-  const maxWork = data[0].workMin;
-  const minWork = data[data.length - 1].workMin;
-
-  // 不均衡度（最大 - 最小）
-  const diff = maxWork - minWork;
-  const fairColor = diff <= 30 ? '#48BB78' : diff <= 90 ? '#F6AD55' : '#F87171';
-  const fairLabel = diff <= 30 ? '均等' : diff <= 90 ? 'やや偏り' : '偏り大';
+  const totalAvailMin = data[0]?.totalAvailMin || 1;
 
   list.innerHTML = `
-    <div class="mb-2 px-1">
-      <div class="flex items-center justify-between mb-1">
-        <span class="text-[10px] text-gray-400">公平性</span>
-        <span class="text-[10px] font-bold" style="color:${fairColor}">${fairLabel}</span>
-      </div>
-      <div class="flex justify-between text-[9px] text-gray-400">
-        <span>平均: ${fmtMin(avg)}</span>
-        <span>差: ${fmtMin(diff)}</span>
-      </div>
-    </div>
-    <div class="space-y-1.5">
+    <div class="space-y-2">
     ${data.map(d => {
-      const pct  = maxMin > 0 ? Math.round((d.workMin / maxMin) * 100) : 0;
-      const over = avg > 0 && d.workMin > avg * 1.3;
-      const under = avg > 0 && d.workMin < avg * 0.7 && d.workMin > 0;
-      const barColor = over ? '#F87171' : under ? '#60A5FA' : '#4DA3FF';
-      const diffFromAvg = d.workMin - avg;
-      const sign = diffFromAvg >= 0 ? '+' : '';
+      const workPct  = Math.round((d.workMin  / totalAvailMin) * 100);
+      const breakPct = Math.round((d.breakMin / totalAvailMin) * 100);
       return `
         <div class="bg-surface rounded-lg px-2 py-1.5">
-          <div class="flex items-center gap-1 mb-1">
+          <div class="flex items-center gap-1 mb-1.5">
             ${d.is_leader ? '<span class="text-yellow-400 text-[9px]">★</span>' : ''}
             <span class="text-[10px] font-semibold text-gray-800 truncate flex-1">${d.name}</span>
-            <span class="text-[9px] font-bold flex-shrink-0" style="color:${barColor}">${fmtMin(d.workMin)}</span>
           </div>
-          <div class="w-full bg-gray-100 rounded-full h-1.5 mb-0.5">
-            <div class="h-1.5 rounded-full transition-all" style="width:${pct}%;background:${barColor}"></div>
+          <div class="w-full flex rounded-full overflow-hidden h-2 bg-gray-100">
+            ${workPct > 0  ? `<div class="h-2 bg-blue-400" style="width:${workPct}%"></div>` : ''}
+            ${breakPct > 0 ? `<div class="h-2 bg-gray-300" style="width:${breakPct}%"></div>` : ''}
           </div>
-          <div class="text-[9px] text-gray-400 text-right">${sign}${fmtMin(Math.abs(diffFromAvg))}</div>
+          <div class="flex justify-between mt-1">
+            <span class="text-[9px] font-medium text-blue-400">仕事 ${fmtMin(d.workMin)}</span>
+            <span class="text-[9px] text-gray-400">休憩 ${fmtMin(d.breakMin)}</span>
+          </div>
         </div>`;
     }).join('')}
     </div>`;
@@ -1813,7 +1794,7 @@ function hideWorkloadPanel() {
   $('btn-open-workload').classList.remove('hidden');
 }
 
-// シフトタブを表示したとき自動で開く
+// シフトタブ切り替え時のパネル制御
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     if (btn.dataset.tab === 'shift') {

@@ -656,66 +656,57 @@ function fmtMin(min) {
   return h > 0 ? `${h}時間${m > 0 ? m + '分' : ''}` : `${m}分`;
 }
 
+const DAY_TOTAL_MIN = (22 - 8) * 60; // 840分
+
 function renderViewerWorkload() {
   const list = $('viewer-workload-list');
   if (!list || !allMembers.length) return;
 
-  const targetSlots = viewerWorkloadScope === 'day'
-    ? allSlots.filter(s => s.date === viewerCurrentDay)
-    : allSlots;
+  const isAll = viewerWorkloadScope === 'all';
+  const targetDates = isAll ? viewerEventDates : (viewerCurrentDay ? [viewerCurrentDay] : []);
+  const dayCount = targetDates.length || 1;
+  const totalAvailMin = DAY_TOTAL_MIN * dayCount;
 
-  const workMin = {};
-  allMembers.forEach(m => { workMin[m.id] = 0; });
+  const targetSlots = isAll ? allSlots : allSlots.filter(s => s.date === viewerCurrentDay);
+
+  const workMinMap = {};
+  allMembers.forEach(m => { workMinMap[m.id] = 0; });
   targetSlots.forEach(slot => {
     const dur = timeToMin(slot.end_time) - timeToMin(slot.start_time);
     slot.assignments.forEach(a => {
-      if (workMin[a.member_id] !== undefined) workMin[a.member_id] += dur;
+      if (workMinMap[a.member_id] !== undefined) workMinMap[a.member_id] += dur;
     });
   });
 
   const sorted = [...allMembers]
-    .map(m => ({ ...m, workMin: workMin[m.id] || 0 }))
+    .map(m => ({
+      ...m,
+      workMin: workMinMap[m.id] || 0,
+      breakMin: Math.max(0, totalAvailMin - (workMinMap[m.id] || 0)),
+    }))
     .sort((a, b) => b.workMin - a.workMin);
 
-  const maxMin  = sorted[0]?.workMin || 1;
-  const total   = sorted.reduce((s, d) => s + d.workMin, 0);
-  const avg     = Math.round(total / sorted.length);
-  const diff    = sorted[0].workMin - sorted[sorted.length - 1].workMin;
-  const fairColor = diff <= 30 ? '#48BB78' : diff <= 90 ? '#F6AD55' : '#F87171';
-  const fairLabel = diff <= 30 ? '均等' : diff <= 90 ? 'やや偏り' : '偏り大';
-
   list.innerHTML = `
-    <div class="mb-2 px-1">
-      <div class="flex items-center justify-between mb-1">
-        <span class="text-[10px] text-gray-400">公平性</span>
-        <span class="text-[10px] font-bold" style="color:${fairColor}">${fairLabel}</span>
-      </div>
-      <div class="flex justify-between text-[9px] text-gray-400">
-        <span>平均: ${fmtMin(avg)}</span>
-        <span>差: ${fmtMin(diff)}</span>
-      </div>
-    </div>
     <div class="space-y-1.5">
     ${sorted.map(d => {
-      const pct = maxMin > 0 ? Math.round((d.workMin / maxMin) * 100) : 0;
       const isMe = d.id === MY_MEMBER_ID;
-      const over  = avg > 0 && d.workMin > avg * 1.3;
-      const under = avg > 0 && d.workMin < avg * 0.7 && d.workMin > 0;
-      const barColor = isMe ? '#4DA3FF' : over ? '#F87171' : under ? '#60A5FA' : '#94A3B8';
-      const diffFromAvg = d.workMin - avg;
-      const sign = diffFromAvg >= 0 ? '+' : '';
+      const workPct  = totalAvailMin > 0 ? Math.round((d.workMin  / totalAvailMin) * 100) : 0;
+      const breakPct = totalAvailMin > 0 ? Math.round((d.breakMin / totalAvailMin) * 100) : 0;
       return `
         <div class="rounded-lg px-2 py-1.5 ${isMe ? 'bg-blue-50' : 'bg-surface'}">
           <div class="flex items-center gap-1 mb-1">
             ${d.is_leader ? '<span class="text-yellow-400 text-[9px]">★</span>' : ''}
             ${isMe ? '<span class="text-primary text-[9px] font-bold">▶</span>' : ''}
             <span class="text-[10px] font-semibold truncate flex-1 ${isMe ? 'text-primary' : 'text-gray-800'}">${d.name}</span>
-            <span class="text-[9px] font-bold flex-shrink-0" style="color:${barColor}">${fmtMin(d.workMin)}</span>
           </div>
-          <div class="w-full bg-gray-100 rounded-full h-1.5 mb-0.5">
-            <div class="h-1.5 rounded-full" style="width:${pct}%;background:${barColor}"></div>
+          <div class="flex w-full h-2 rounded-full overflow-hidden bg-gray-100 mb-0.5">
+            ${workPct > 0  ? `<div class="h-full bg-blue-400" style="width:${workPct}%"></div>` : ''}
+            ${breakPct > 0 ? `<div class="h-full bg-gray-300" style="width:${breakPct}%"></div>` : ''}
           </div>
-          <div class="text-[9px] text-gray-400 text-right">${sign}${fmtMin(Math.abs(diffFromAvg))}</div>
+          <div class="flex justify-between text-[9px]">
+            <span class="text-blue-400 font-medium">仕事 ${fmtMin(d.workMin)}</span>
+            <span class="text-gray-400">休憩 ${fmtMin(d.breakMin)}</span>
+          </div>
         </div>`;
     }).join('')}
     </div>`;
