@@ -194,6 +194,28 @@ class JobType(db.Model):
         }
 
 
+class ShiftAbsence(db.Model):
+    """シフトボードの欠席マーク（管理画面表示用）"""
+    __tablename__ = 'shift_absences'
+    id = db.Column(db.Integer, primary_key=True)
+    event_id = db.Column(db.Integer, db.ForeignKey('events.id'), nullable=False)
+    member_id = db.Column(db.Integer, db.ForeignKey('event_members.id'), nullable=False)
+    date = db.Column(db.Date, nullable=False)
+    is_full_day = db.Column(db.Boolean, default=False, nullable=False)
+    absent_times = db.Column(db.Text, nullable=True)  # JSON list of "HH:MM"
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    __table_args__ = (db.UniqueConstraint('event_id', 'member_id', 'date'),)
+
+    def to_dict(self):
+        import json
+        return {
+            'member_id': self.member_id,
+            'date': self.date.isoformat(),
+            'is_full_day': self.is_full_day,
+            'absent_times': json.loads(self.absent_times) if self.absent_times else [],
+        }
+
+
 class Availability(db.Model):
     """参加可否（希望提出）"""
     __tablename__ = 'availabilities'

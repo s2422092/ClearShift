@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, redirect, url_for, request, jsonify, session, Response
 from flask_login import login_required, current_user
-from models import db, Event, EventMember, ShiftSlot, ShiftAssignment, Availability, EventCollaborator, User, JobType
+from models import db, Event, EventMember, ShiftSlot, ShiftAssignment, Availability, EventCollaborator, User, JobType, ShiftAbsence
 from datetime import date, datetime, timedelta
 import csv
 import io
@@ -819,4 +819,60 @@ def api_resolve_notification(event_id, assignment_id):
     ).first_or_404()
     a.resolved_at = datetime.utcnow()
     db.session.commit()
+    return jsonify({'ok': True})
+
+
+# ── API: Shift Absences ───────────────────────────────────────────────────────
+
+@admin_bp.route('/api/events/<int:event_id>/absences', methods=['GET'])
+@login_required
+def api_get_absences(event_id):
+    _can_access_event(event_id)
+    absences = ShiftAbsence.query.filter_by(event_id=event_id).all()
+    return jsonify([a.to_dict() for a in absences])
+
+
+@admin_bp.route('/api/events/<int:event_id>/absences', methods=['POST'])
+@login_required
+def api_set_absence(event_id):
+    import json as _json
+    _can_access_event(event_id)
+    data = request.get_json()
+    member_id = data.get('member_id')
+    is_full_day = bool(data.get('is_full_day', False))
+    absent_times = data.get('absent_times', [])
+    try:
+        absence_date = date.fromisoformat(data.get('date', ''))
+    except (ValueError, TypeError):
+        return jsonify({'error': '日付の形式が正しくありません'}), 400
+
+    absence = ShiftAbsence.query.filter_by(
+        event_id=event_id, member_id=member_id, date=absence_date
+    ).first()
+    if absence is None:
+        absence = ShiftAbsence(event_id=event_id, member_id=member_id, date=absence_date)
+        db.session.add(absence)
+    absence.is_full_day = is_full_day
+    absence.absent_times = _json.dumps(absent_times) if absent_times else None
+    db.session.commit()
+    return jsonify(absence.to_dict())
+
+
+@admin_bp.route('/api/events/<int:event_id>/absences', methods=['DELETE'])
+@login_required
+def api_delete_absence(event_id):
+    _can_access_event(event_id)
+    data = request.get_json()
+    member_id = data.get('member_id')
+    try:
+        absence_date = date.fromisoformat(data.get('date', ''))
+    except (ValueError, TypeError):
+        return jsonify({'error': '日付の形式が正しくありません'}), 400
+
+    absence = ShiftAbsence.query.filter_by(
+        event_id=event_id, member_id=member_id, date=absence_date
+    ).first()
+    if absence:
+        db.session.delete(absence)
+        db.session.commit()
     return jsonify({'ok': True})

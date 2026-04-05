@@ -440,13 +440,59 @@ function jobColorFromSlot(slot) {
   return job ? job.color : '#4DA3FF';
 }
 
+async function loadAbsences() {
+  try {
+    const data = await apiFetch(`/api/events/${EVENT_ID}/absences`);
+    absentMemberDays.clear();
+    absentRangeCells.clear();
+    data.forEach(rec => {
+      if (rec.is_full_day) {
+        if (!absentMemberDays.has(rec.date)) absentMemberDays.set(rec.date, new Set());
+        absentMemberDays.get(rec.date).add(rec.member_id);
+      } else if (rec.absent_times && rec.absent_times.length > 0) {
+        if (!absentRangeCells.has(rec.date)) absentRangeCells.set(rec.date, new Map());
+        absentRangeCells.get(rec.date).set(rec.member_id, new Set(rec.absent_times));
+      }
+    });
+  } catch (e) {
+    console.error('欠席データ読み込み失敗', e);
+  }
+}
+
+async function saveAbsence(day, memberId) {
+  const isFullDay = (absentMemberDays.get(day) || new Set()).has(memberId);
+  const rmap = absentRangeCells.get(day);
+  const rangeTimes = isFullDay ? [] : [...(rmap?.get(memberId) || [])];
+  try {
+    if (!isFullDay && rangeTimes.length === 0) {
+      await fetch(`/api/events/${EVENT_ID}/absences`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ member_id: memberId, date: day }),
+      });
+    } else {
+      await fetch(`/api/events/${EVENT_ID}/absences`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ member_id: memberId, date: day, is_full_day: isFullDay, absent_times: rangeTimes }),
+      });
+    }
+  } catch (e) {
+    console.error('欠席保存失敗', e);
+  }
+}
+
 async function loadShifts() {
   try {
-    [slots, members, jobs] = await Promise.all([
-      apiFetch(`/api/events/${EVENT_ID}/slots`),
-      apiFetch(`/api/events/${EVENT_ID}/members`),
-      apiFetch(`/api/events/${EVENT_ID}/jobs`),
+    const [shiftData] = await Promise.all([
+      Promise.all([
+        apiFetch(`/api/events/${EVENT_ID}/slots`),
+        apiFetch(`/api/events/${EVENT_ID}/members`),
+        apiFetch(`/api/events/${EVENT_ID}/jobs`),
+      ]),
+      loadAbsences(),
     ]);
+    [slots, members, jobs] = shiftData;
     eventDates = generateEventDates(EVENT_START, EVENT_END);
     if (!currentDay || !eventDates.includes(currentDay)) currentDay = eventDates[0] || null;
     renderDayTabs();
@@ -786,6 +832,7 @@ function renderShiftBoard() {
         }
       }
       renderShiftBoard();
+      saveAbsence(day, mid);
     });
   });
 
@@ -807,6 +854,7 @@ function renderShiftBoard() {
         if (rmap) { rmap.delete(mid); if (rmap.size === 0) absentRangeCells.delete(day); }
       }
       renderShiftBoard();
+      saveAbsence(day, mid);
     });
   });
 
@@ -991,6 +1039,7 @@ function openBoardSlotModal(memberId, startTime, endTime) {
     });
     closeBoardSlotModal();
     renderShiftBoard();
+    saveAbsence(day, memberId);
   });
 
   // 前回の範囲削除ボタンが残っていれば除去
