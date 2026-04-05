@@ -605,12 +605,14 @@ function renderShiftBoard() {
           data-member="${m.id}" data-time="${col}"></td>`;
       }).join('');
 
-      const dimStyle = isSearchDim ? 'opacity:0.25;' : '';
-      const hlStyle  = isSearchMatch ? 'outline:2px solid #4DA3FF;outline-offset:-1px;' : '';
+      const dimStyle = isSearchDim ? 'opacity:0.15;' : '';
+      const hlStyle  = isSearchMatch ? 'outline:2px solid #4DA3FF;outline-offset:-2px;background:rgba(77,163,255,0.07);' : '';
       const copyStyle = isCopySrc ? 'background:rgba(159,122,234,0.12);outline:2px solid #9F7AEA;outline-offset:-2px;' : '';
 
-      // sticky列の背景: コピー元は紫 > リーダーは黄 > デフォルト白
-      const stickyBg = isCopySrc ? 'background:rgba(159,122,234,0.12);' : leaderBg;
+      // sticky列の背景: コピー元は紫 > 検索ヒットは青 > リーダーは黄 > デフォルト白
+      const stickyBg = isCopySrc ? 'background:rgba(159,122,234,0.12);'
+                     : isSearchMatch ? 'background:rgba(77,163,255,0.10);'
+                     : leaderBg;
 
       return `<tr style="${leaderBg}${dimStyle}${hlStyle}${copyStyle}" data-member-row="${m.id}">
         <td class="sticky left-0 z-10 border-r border-b border-gray-100 px-2 py-1 whitespace-nowrap select-none"
@@ -726,7 +728,16 @@ function renderShiftBoard() {
   updateBoardHighlight();
 }
 
+function clearBoardSearch() {
+  if (!boardSearchQuery) return;
+  boardSearchQuery = '';
+  const el = $('board-search');
+  if (el) el.value = '';
+  renderShiftBoard();
+}
+
 function handleBoardCellClick(memberId, timeStr, cols) {
+  clearBoardSearch();
   if (!boardSelectStart) {
     boardSelectStart = { memberId, timeStr };
     boardHoverTime = timeStr;
@@ -884,6 +895,7 @@ function populateJobSelect(currentJobTypeId) {
 }
 
 function openOccupiedCellMenu(slotId, assignmentId) {
+  clearBoardSearch();
   const slot = slots.find(s => s.id === slotId);
   if (!slot) return;
 
@@ -1543,8 +1555,33 @@ $('form-csv').addEventListener('submit', async e => {
 
 // ─── Board Search ─────────────────────────────────────────────────────────────
 $('board-search')?.addEventListener('input', e => {
-  boardSearchQuery = e.target.value.trim();
+  if (!e.target.value.trim()) { boardSearchQuery = ''; renderShiftBoard(); }
+});
+$('board-search')?.addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  const query = e.target.value.trim();
+  boardSearchQuery = query;
   renderShiftBoard();
+
+  if (!query) return;
+
+  // ヒットした最初の行を画面中央へスクロール
+  const container = $('shift-board-container');
+  const firstMatch = container?.querySelector(`tr[data-member-row]`
+    + `:is(${
+      members
+        .filter(m => m.name.includes(query))
+        .map(m => `[data-member-row="${m.id}"]`)
+        .join(',') || '[data-member-row="-1"]'
+    })`);
+
+  if (firstMatch && container) {
+    const trRect  = firstMatch.getBoundingClientRect();
+    const boxRect = container.getBoundingClientRect();
+    const offset  = firstMatch.offsetTop - container.scrollTop;
+    const target  = container.scrollTop + offset - (container.clientHeight / 2) + (trRect.height / 2);
+    container.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+  }
 });
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
