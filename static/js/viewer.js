@@ -129,17 +129,23 @@ function renderMyShifts() {
   list.innerHTML = Object.entries(byDate).sort(([a], [b]) => a.localeCompare(b)).map(([date, dayShifts]) => {
     const sorted = [...dayShifts].sort((a, b) => a.start_time.localeCompare(b.start_time));
 
-    // タイムラインアイテムを構築（シフト＋休憩）
+    // タイムラインアイテムを構築（シフト前後・間の全空き時間を休憩として挿入）
     const items = [];
-    sorted.forEach((s, i) => {
-      items.push({ type: 'shift', shift: s });
-      if (i < sorted.length - 1) {
-        const next = sorted[i + 1];
-        if (s.end_time < next.start_time) {
-          items.push({ type: 'break', from: s.end_time, to: next.start_time });
-        }
+    const DAY_START = '08:00';
+    const DAY_END   = '22:00';
+    let cursor = DAY_START;
+
+    sorted.forEach(s => {
+      if (cursor < s.start_time) {
+        items.push({ type: 'break', from: cursor, to: s.start_time });
       }
+      items.push({ type: 'shift', shift: s });
+      cursor = s.end_time;
     });
+
+    if (cursor < DAY_END) {
+      items.push({ type: 'break', from: cursor, to: DAY_END });
+    }
 
     const timelineHtml = items.map(item => {
       if (item.type === 'break') {
