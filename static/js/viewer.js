@@ -510,8 +510,9 @@ function renderViewerBoard() {
             ${m.is_leader ? '<span class="text-yellow-400 text-[11px] flex-shrink-0">★</span>' : ''}
             ${isMe ? '<span class="text-primary text-[11px] font-bold flex-shrink-0">▶</span>' : ''}
             <div class="min-w-0">
-              <div class="text-xs font-semibold truncate ${isMe ? 'text-primary' : 'text-gray-800'}">${m.name}</div>
-              ${m.grade ? `<div class="text-[9px] text-gray-400">${m.grade}</div>` : ''}
+              <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 0;color:${isMe ? '#4DA3FF' : '#1f2937'};font-size:12px;font-weight:600">
+                ${m.name}${m.grade ? `<span style="margin-left:4px;font-size:9px;font-weight:400;color:#9ca3af">${m.grade}</span>` : ''}
+              </div>
             </div>
           </div>
         </td>

@@ -632,8 +632,9 @@ function renderShiftBoard() {
           <div class="flex items-center gap-1.5">
             ${m.is_leader ? '<span class="text-yellow-400 text-xs">★</span>' : ''}
             <div class="flex-1 min-w-0">
-              <div class="text-xs font-semibold truncate ${isCopySrc ? 'text-purple-700' : 'text-gray-800'}">${m.name}</div>
-              ${m.grade ? `<div class="text-[9px] text-gray-400">${m.grade}</div>` : ''}
+              <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 0;color:${isCopySrc ? '#6D28D9' : '#1f2937'};font-size:12px;font-weight:600">
+                ${m.name}${m.grade ? `<span style="margin-left:4px;font-size:9px;font-weight:400;color:#9ca3af">${m.grade}</span>` : ''}
+              </div>
             </div>
             <button class="btn-board-copy flex-shrink-0 transition-colors ${isCopySrc ? 'text-purple-500' : 'text-gray-300 hover:text-purple-400'}"
               data-mid="${m.id}" title="${isCopySrc ? 'コピー元（クリックで解除）' : 'このメンバーのシフトをコピー'}">
