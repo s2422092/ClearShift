@@ -2056,7 +2056,7 @@ function renderWorkloadPanel() {
 
 // 公平性パネルと仕事分担パネルは排他（同時に表示不可）
 function showWorkloadPanel() {
-  hideJobDistPanel(false);
+  hideJobDistPanel(true);   // 仕事分担ボタンを表示したまま閉じる
   $('workload-panel').classList.remove('hidden');
   $('workload-panel').classList.add('flex');
   $('btn-open-workload').classList.add('hidden');
@@ -2070,7 +2070,7 @@ function hideWorkloadPanel(showBtn = true) {
 }
 
 function showJobDistPanel() {
-  hideWorkloadPanel(false);
+  hideWorkloadPanel(true);  // 公平性ボタンを表示したまま閉じる
   $('job-dist-panel').classList.remove('hidden');
   $('job-dist-panel').classList.add('flex');
   $('btn-open-job-dist').classList.add('hidden');
