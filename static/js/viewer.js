@@ -369,6 +369,7 @@ function renderViewerBoard() {
     const endM     = timeToMin(slot.end_time);
     const jobColor = slot.job_color || '#4DA3FF';
 
+    const spanPx = Math.round((endM - startM) / viewerIntervalMin) * cw;
     slot.assignments.forEach(a => {
       if (!memberShiftRanges.has(a.member_id)) memberShiftRanges.set(a.member_id, []);
       memberShiftRanges.get(a.member_id).push({ startM, endM });
@@ -380,6 +381,7 @@ function renderViewerBoard() {
           cellMap.set(`${a.member_id}|${col}`, {
             slotId: slot.id, role: slot.role,
             status: a.status, isFirst: prevM < startM,
+            spanPx,
             jobColor,
           });
         }
@@ -476,10 +478,10 @@ function renderViewerBoard() {
           const bg     = slotColor(cell.jobColor, cell.status);
           const border = cell.isFirst ? `border-left:3px solid ${cell.jobColor};` : '';
           const roleText = (cell.isFirst && cell.role)
-            ? `<span class="absolute inset-0 flex items-center px-1 text-[9px] font-semibold overflow-hidden whitespace-nowrap pointer-events-none" style="color:${cell.jobColor}">${cell.role}</span>`
+            ? `<span class="absolute top-0 left-0 flex items-center px-1 text-[9px] font-semibold whitespace-nowrap pointer-events-none z-[1]" style="height:100%;width:${cell.spanPx}px;color:${cell.jobColor}">${cell.role}</span>`
             : '';
           return `<td style="min-width:${cw}px;width:${cw}px;background:${bg};${border}"
-            class="relative h-9 border-b border-b-white/30 ${cb}">${roleText}</td>`;
+            class="relative h-10 border-b border-b-white/30 ${cb}">${roleText}</td>`;
         }
 
         if (isGap) {
@@ -487,13 +489,13 @@ function renderViewerBoard() {
           const prevCol = cols[cols.indexOf(col) - 1];
           const isFirstGap = !prevCol || !gapMap.get(`${m.id}|${prevCol}`);
           return `<td style="min-width:${cw}px;width:${cw}px;background:rgba(156,163,175,0.1)"
-            class="relative h-9 border-b border-b-gray-50 ${cb}">
-            ${isFirstGap ? `<span class="absolute inset-0 flex items-center px-1 text-[9px] text-gray-400 whitespace-nowrap select-none">休憩</span>` : ''}
+            class="relative h-10 border-b border-b-gray-50 ${cb}">
+            ${isFirstGap ? `<span class="absolute top-0 left-0 flex items-center px-1 text-[9px] text-gray-400 whitespace-nowrap select-none pointer-events-none z-[1]" style="height:100%">休憩</span>` : ''}
           </td>`;
         }
 
         return `<td style="min-width:${cw}px;width:${cw}px"
-          class="h-9 border-b border-b-gray-50 ${cb}"></td>`;
+          class="h-10 border-b border-b-gray-50 ${cb}"></td>`;
       }).join('');
 
       // sticky列は必ず不透明な背景色（スクロール時に後ろが透けないよう）
@@ -723,6 +725,61 @@ document.querySelectorAll('.viewer-workload-scope').forEach(btn => {
     });
     renderViewerWorkload();
   });
+});
+
+// ─── PDF Download ─────────────────────────────────────────────────────────────
+async function captureAsPDF(targetEl, filename, landscape) {
+  const canvas = await html2canvas(targetEl, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ orientation: landscape ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' });
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  const ratio = canvas.width / canvas.height;
+  const imgW = pageW;
+  const imgH = imgW / ratio;
+
+  if (imgH <= pageH) {
+    pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, imgW, imgH);
+  } else {
+    let y = 0;
+    while (y < imgH) {
+      if (y > 0) pdf.addPage();
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, -y, imgW, imgH);
+      y += pageH;
+    }
+  }
+  pdf.save(filename);
+}
+
+$('btn-download-myshift-pdf')?.addEventListener('click', async function () {
+  const target = $('my-shifts-list');
+  if (!target) return;
+  this.textContent = '生成中...';
+  this.disabled = true;
+  try {
+    await captureAsPDF(target, `マイシフト_${MEMBER_NAME}.pdf`, false);
+  } catch (e) {
+    alert('PDFの生成に失敗しました。');
+  } finally {
+    this.textContent = 'PDF';
+    this.disabled = false;
+  }
+});
+
+$('btn-download-allshift-pdf')?.addEventListener('click', async function () {
+  const target = $('all-shifts-board');
+  if (!target) return;
+  this.textContent = '生成中...';
+  this.disabled = true;
+  try {
+    const dateLabel = viewerCurrentDay || '全体シフト';
+    await captureAsPDF(target, `全体シフト_${dateLabel}.pdf`, true);
+  } catch (e) {
+    alert('PDFの生成に失敗しました。');
+  } finally {
+    this.textContent = 'PDF';
+    this.disabled = false;
+  }
 });
 
 // ─── Init ─────────────────────────────────────────────────────────────────────

@@ -491,6 +491,7 @@ function renderShiftBoard() {
     const startM = timeToMin(slot.start_time);
     const endM   = timeToMin(slot.end_time);
     const jobColor = jobColorFromSlot(slot);
+    const spanPx = Math.round((endM - startM) / intervalMin) * cw;
     slot.assignments.forEach(a => {
       cols.forEach((col, i) => {
         const colM = timeToMin(col);
@@ -500,6 +501,7 @@ function renderShiftBoard() {
             slotId: slot.id, role: slot.role,
             assignmentId: a.id, status: a.status,
             isFirst: prevM < startM,
+            spanPx,
             jobColor,
           });
         }
@@ -601,15 +603,15 @@ function renderShiftBoard() {
             ? `border-left: 3px solid ${isSelected ? '#EF4444' : cell.jobColor};`
             : '';
           const roleText = cell.isFirst && cell.role
-            ? `<span class="absolute inset-0 flex items-center px-1 text-[9px] font-semibold overflow-hidden whitespace-nowrap pointer-events-none" style="color:${isSelected ? '#EF4444' : cell.jobColor}">${cell.role}</span>`
+            ? `<span class="absolute top-0 left-0 flex items-center px-1 text-[9px] font-semibold whitespace-nowrap pointer-events-none z-[1]" style="height:100%;width:${cell.spanPx}px;color:${isSelected ? '#EF4444' : cell.jobColor}">${cell.role}</span>`
             : '';
           const selectedRing = isSelected ? 'outline:2px solid #EF4444;outline-offset:-2px;' : '';
           return `<td style="min-width:${cw}px;width:${cw}px;background:${bg};${border}${selectedRing}"
-            class="board-cell-occupied relative h-9 cursor-pointer border-b border-b-white/30 ${cb}"
+            class="board-cell-occupied relative h-10 cursor-pointer border-b border-b-white/30 ${cb}"
             data-slot="${cell.slotId}" data-aid="${cell.assignmentId}" data-member="${m.id}" data-time="${col}">${roleText}</td>`;
         }
         return `<td style="min-width:${cw}px;width:${cw}px"
-          class="board-cell h-9 cursor-pointer border-b border-b-gray-50 ${isCopyTgt ? 'hover:bg-green-100' : 'hover:bg-primary/10'} ${cb}"
+          class="board-cell h-10 cursor-pointer border-b border-b-gray-50 ${isCopyTgt ? 'hover:bg-green-100' : 'hover:bg-primary/10'} ${cb}"
           data-member="${m.id}" data-time="${col}"></td>`;
       }).join('');
 
@@ -1821,6 +1823,51 @@ document.querySelectorAll('.workload-scope-btn').forEach(btn => {
     renderWorkloadPanel();
   });
 });
+
+// ─── PDF Download ─────────────────────────────────────────────────────────────
+async function downloadShiftBoardPDF() {
+  const btn = $('btn-download-pdf');
+  const target = $('shift-board');
+  if (!target) return;
+
+  const original = btn.textContent;
+  btn.textContent = '生成中...';
+  btn.disabled = true;
+
+  try {
+    const canvas = await html2canvas(target, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+    const { jsPDF } = window.jspdf;
+    const isLandscape = canvas.width > canvas.height;
+    const pdf = new jsPDF({ orientation: isLandscape ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' });
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const ratio = canvas.width / canvas.height;
+    const imgW = pageW;
+    const imgH = imgW / ratio;
+
+    if (imgH <= pageH) {
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, imgW, imgH);
+    } else {
+      // 縦に長い場合は複数ページ
+      let y = 0;
+      while (y < imgH) {
+        if (y > 0) pdf.addPage();
+        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, -y, imgW, imgH);
+        y += pageH;
+      }
+    }
+
+    const dateLabel = currentDay || 'シフト表';
+    pdf.save(`シフト表_${dateLabel}.pdf`);
+  } catch (e) {
+    alert('PDFの生成に失敗しました。');
+  } finally {
+    btn.textContent = original;
+    btn.disabled = false;
+  }
+}
+
+$('btn-download-pdf')?.addEventListener('click', downloadShiftBoardPDF);
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 loadShifts();
