@@ -391,6 +391,10 @@ let boardSearchQuery = '';    // 名前検索
 let copySourceMemberId = null; // コピー元メンバーID
 let bulkDeleteMode = false;   // 一括削除モード
 let bulkDeleteSelected = new Set(); // 選択中の assignmentId
+// day -> Set<memberId>  全日欠席
+const absentMemberDays = new Map();
+// day -> Map<memberId, Set<col>>  範囲欠席
+const absentRangeCells = new Map();
 
 const BOARD_START_H = 8;
 const BOARD_END_H   = 22;
@@ -573,6 +577,10 @@ function renderShiftBoard() {
 
   const isCopyMode = copySourceMemberId !== null;
 
+  // 欠席状態を取得
+  const dayAbsentSet = absentMemberDays.get(currentDay) || new Set();
+  const dayRangeMap  = absentRangeCells.get(currentDay) || new Map();
+
   const rowsHtml = deptOrder.map(dept => {
     const deptMembers = deptGroups[dept];
     const deptSeparator = `
@@ -590,10 +598,20 @@ function renderShiftBoard() {
       const isCopyTgt  = isCopyMode && copySourceMemberId !== m.id;
       const leaderBg   = m.is_leader ? 'background:#FEFCE8;' : '';
 
+      const isFullAbsent = dayAbsentSet.has(m.id);
+      const memberRangeSet = dayRangeMap.get(m.id);
+
       const cellsHtml = cols.map(col => {
         const key = `${m.id}|${col}`;
         const cell = cellMap.get(key);
         const cb = colBorder(col);
+
+        // 欠席セル（全日 or 範囲）
+        if (isFullAbsent || (memberRangeSet && memberRangeSet.has(col))) {
+          return `<td style="min-width:${cw}px;width:${cw}px;background:#1a1a1a"
+            class="board-absent-cell h-10 cursor-pointer ${cb}"
+            data-member="${m.id}" data-time="${col}"></td>`;
+        }
 
         if (cell) {
           const isSelected = bulkDeleteSelected.has(cell.assignmentId);
@@ -645,6 +663,14 @@ function renderShiftBoard() {
                 : `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
                    </svg>`}
+            </button>
+            <button class="btn-member-absent flex-shrink-0 transition-colors ${isFullAbsent ? 'text-white' : 'text-gray-300 hover:text-gray-700'}"
+              data-mid="${m.id}" title="全日欠席"
+              style="${isFullAbsent ? 'background:#1a1a1a;border-radius:3px;padding:1px 2px' : ''}">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
+              </svg>
             </button>
           </div>
         </td>
@@ -732,6 +758,54 @@ function renderShiftBoard() {
       if (!isCopyMode) return;
       const targetMid = parseInt(row.dataset.memberRow);
       if (targetMid !== copySourceMemberId) handleBoardCopyClick(targetMid);
+    });
+  });
+
+  // 欠席セルクリック（クリックで解除）
+  board.querySelectorAll('.board-absent-cell').forEach(cell => {
+    cell.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const mid = parseInt(cell.dataset.member);
+      const day = currentDay;
+      const set = absentMemberDays.get(day);
+      if (set && set.has(mid)) {
+        // 全日欠席 → 解除
+        set.delete(mid);
+        if (set.size === 0) absentMemberDays.delete(day);
+      } else {
+        // 範囲欠席 → そのセルだけ解除
+        const rmap = absentRangeCells.get(day);
+        if (rmap) {
+          const rset = rmap.get(mid);
+          if (rset) {
+            rset.delete(cell.dataset.time);
+            if (rset.size === 0) rmap.delete(mid);
+            if (rmap.size === 0) absentRangeCells.delete(day);
+          }
+        }
+      }
+      renderShiftBoard();
+    });
+  });
+
+  // ⊘ 欠席ボタン（全日トグル）
+  board.querySelectorAll('.btn-member-absent').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const mid = parseInt(btn.dataset.mid);
+      const day = currentDay;
+      if (!absentMemberDays.has(day)) absentMemberDays.set(day, new Set());
+      const set = absentMemberDays.get(day);
+      if (set.has(mid)) {
+        set.delete(mid);
+        if (set.size === 0) absentMemberDays.delete(day);
+      } else {
+        set.add(mid);
+        // 範囲欠席があれば削除（全日に統合）
+        const rmap = absentRangeCells.get(day);
+        if (rmap) { rmap.delete(mid); if (rmap.size === 0) absentRangeCells.delete(day); }
+      }
+      renderShiftBoard();
     });
   });
 
@@ -891,7 +965,32 @@ function openBoardSlotModal(memberId, startTime, endTime) {
   $('board-slot-info').innerHTML = `
     <div class="flex justify-between text-xs"><span class="text-gray-500">メンバー</span><span class="font-semibold text-gray-800">${m?.name || ''}</span></div>
     <div class="flex justify-between text-xs"><span class="text-gray-500">日付</span><span class="font-semibold text-gray-800">${fmtDate(currentDay)}</span></div>
-    <div class="flex justify-between text-xs"><span class="text-gray-500">時間</span><span class="font-semibold text-gray-800">${startTime} 〜 ${endTime}</span></div>`;
+    <div class="flex justify-between text-xs"><span class="text-gray-500">時間</span><span class="font-semibold text-gray-800">${startTime} 〜 ${endTime}</span></div>
+    <button id="btn-absent-range"
+      class="mt-2 w-full py-1.5 text-xs font-semibold rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-100 transition-colors flex items-center justify-center gap-1">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
+      </svg>
+      この時間帯を欠席にする
+    </button>`;
+
+  // 欠席ボタンのイベント
+  document.getElementById('btn-absent-range')?.addEventListener('click', () => {
+    const { memberId, startTime: st, endTime: et } = pendingBoardSlot;
+    const day = currentDay;
+    if (!absentRangeCells.has(day)) absentRangeCells.set(day, new Map());
+    const rmap = absentRangeCells.get(day);
+    if (!rmap.has(memberId)) rmap.set(memberId, new Set());
+    const rset = rmap.get(memberId);
+    const cols = buildTimeCols(intervalMin);
+    const startM = timeToMin(st), endM = timeToMin(et);
+    cols.forEach(col => {
+      if (timeToMin(col) >= startM && timeToMin(col) < endM) rset.add(col);
+    });
+    closeBoardSlotModal();
+    renderShiftBoard();
+  });
 
   // 前回の範囲削除ボタンが残っていれば除去
   $('btn-range-delete-trigger')?.remove();
