@@ -321,6 +321,7 @@ async function loadAllShifts() {
     }
     renderViewerDayTabs();
     renderViewerBoard();
+    renderViewerWorkload();
   } catch (err) {
     board.innerHTML = `<div class="text-center py-10 text-red-400 text-sm">${err.message}</div>`;
   }
@@ -342,6 +343,7 @@ function renderViewerDayTabs() {
       viewerCurrentDay = btn.dataset.date;
       renderViewerDayTabs();
       renderViewerBoard();
+      renderViewerWorkload();
     });
   });
 }
@@ -494,9 +496,14 @@ function renderViewerBoard() {
           class="h-9 border-b border-b-gray-50 ${cb}"></td>`;
       }).join('');
 
+      // sticky列は必ず不透明な背景色（スクロール時に後ろが透けないよう）
+      const solidBg = isMe        ? '#EFF6FF'
+                    : m.is_leader ? '#FEFCE8'
+                    : '#FFFFFF';
+
       return `<tr style="${rowBg}">
-        <td class="sticky left-0 z-10 border-r border-b border-gray-100 px-2 py-1 whitespace-nowrap select-none"
-          style="min-width:${MEMBER_W}px;${rowBg}">
+        <td class="sticky left-0 z-10 border-b border-gray-100 px-2 py-1 whitespace-nowrap select-none"
+          style="min-width:${MEMBER_W}px;background:${solidBg}">
           <div class="flex items-center gap-1">
             ${m.is_leader ? '<span class="text-yellow-400 text-[11px] flex-shrink-0">★</span>' : ''}
             ${isMe ? '<span class="text-primary text-[11px] font-bold flex-shrink-0">▶</span>' : ''}
@@ -506,8 +513,8 @@ function renderViewerBoard() {
             </div>
           </div>
         </td>
-        <td class="sticky border-r border-b border-gray-100 px-1.5 py-1 whitespace-nowrap select-none text-[9px] text-gray-400"
-          style="left:${MEMBER_W}px;min-width:${DEPT_W}px;${rowBg}">
+        <td class="sticky border-b border-gray-100 px-1.5 py-1 whitespace-nowrap select-none text-[9px] text-gray-500 font-medium"
+          style="left:${MEMBER_W}px;min-width:${DEPT_W}px;background:${solidBg};box-shadow:3px 0 5px rgba(0,0,0,0.08)">
           ${m.department || ''}
         </td>
         ${cellsHtml}
@@ -523,11 +530,11 @@ function renderViewerBoard() {
       <thead>
         <tr>
           <th rowspan="2" style="min-width:${MEMBER_W}px;top:0"
-            class="sticky left-0 z-30 bg-white border-r border-b-2 border-b-gray-200 border-gray-100 px-3 text-left text-xs text-gray-500 font-medium select-none">
+            class="sticky left-0 z-30 bg-white border-b-2 border-b-gray-200 px-3 text-left text-xs text-gray-500 font-medium select-none">
             メンバー
           </th>
-          <th rowspan="2" style="min-width:${DEPT_W}px;top:0;left:${MEMBER_W}px"
-            class="sticky z-30 bg-white border-r border-b-2 border-b-gray-200 border-gray-100 px-2 text-left text-xs text-gray-500 font-medium select-none">
+          <th rowspan="2" style="min-width:${DEPT_W}px;top:0;left:${MEMBER_W}px;box-shadow:3px 0 5px rgba(0,0,0,0.08)"
+            class="sticky z-30 bg-white border-b-2 border-b-gray-200 px-2 text-left text-xs text-gray-500 font-medium select-none">
             局
           </th>
           ${topRowHtml}
@@ -638,6 +645,93 @@ $('btn-submit-avail').addEventListener('click', async () => {
   } catch (err) {
     alert(err.message);
   }
+});
+
+// ─── Viewer Workload Panel ────────────────────────────────────────────────────
+let viewerWorkloadScope = 'day';
+
+function fmtMin(min) {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return h > 0 ? `${h}時間${m > 0 ? m + '分' : ''}` : `${m}分`;
+}
+
+function renderViewerWorkload() {
+  const list = $('viewer-workload-list');
+  if (!list || !allMembers.length) return;
+
+  const targetSlots = viewerWorkloadScope === 'day'
+    ? allSlots.filter(s => s.date === viewerCurrentDay)
+    : allSlots;
+
+  const workMin = {};
+  allMembers.forEach(m => { workMin[m.id] = 0; });
+  targetSlots.forEach(slot => {
+    const dur = timeToMin(slot.end_time) - timeToMin(slot.start_time);
+    slot.assignments.forEach(a => {
+      if (workMin[a.member_id] !== undefined) workMin[a.member_id] += dur;
+    });
+  });
+
+  const sorted = [...allMembers]
+    .map(m => ({ ...m, workMin: workMin[m.id] || 0 }))
+    .sort((a, b) => b.workMin - a.workMin);
+
+  const maxMin  = sorted[0]?.workMin || 1;
+  const total   = sorted.reduce((s, d) => s + d.workMin, 0);
+  const avg     = Math.round(total / sorted.length);
+  const diff    = sorted[0].workMin - sorted[sorted.length - 1].workMin;
+  const fairColor = diff <= 30 ? '#48BB78' : diff <= 90 ? '#F6AD55' : '#F87171';
+  const fairLabel = diff <= 30 ? '均等' : diff <= 90 ? 'やや偏り' : '偏り大';
+
+  list.innerHTML = `
+    <div class="mb-2 px-1">
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-[10px] text-gray-400">公平性</span>
+        <span class="text-[10px] font-bold" style="color:${fairColor}">${fairLabel}</span>
+      </div>
+      <div class="flex justify-between text-[9px] text-gray-400">
+        <span>平均: ${fmtMin(avg)}</span>
+        <span>差: ${fmtMin(diff)}</span>
+      </div>
+    </div>
+    <div class="space-y-1.5">
+    ${sorted.map(d => {
+      const pct = maxMin > 0 ? Math.round((d.workMin / maxMin) * 100) : 0;
+      const isMe = d.id === MY_MEMBER_ID;
+      const over  = avg > 0 && d.workMin > avg * 1.3;
+      const under = avg > 0 && d.workMin < avg * 0.7 && d.workMin > 0;
+      const barColor = isMe ? '#4DA3FF' : over ? '#F87171' : under ? '#60A5FA' : '#94A3B8';
+      const diffFromAvg = d.workMin - avg;
+      const sign = diffFromAvg >= 0 ? '+' : '';
+      return `
+        <div class="rounded-lg px-2 py-1.5 ${isMe ? 'bg-blue-50' : 'bg-surface'}">
+          <div class="flex items-center gap-1 mb-1">
+            ${d.is_leader ? '<span class="text-yellow-400 text-[9px]">★</span>' : ''}
+            ${isMe ? '<span class="text-primary text-[9px] font-bold">▶</span>' : ''}
+            <span class="text-[10px] font-semibold truncate flex-1 ${isMe ? 'text-primary' : 'text-gray-800'}">${d.name}</span>
+            <span class="text-[9px] font-bold flex-shrink-0" style="color:${barColor}">${fmtMin(d.workMin)}</span>
+          </div>
+          <div class="w-full bg-gray-100 rounded-full h-1.5 mb-0.5">
+            <div class="h-1.5 rounded-full" style="width:${pct}%;background:${barColor}"></div>
+          </div>
+          <div class="text-[9px] text-gray-400 text-right">${sign}${fmtMin(Math.abs(diffFromAvg))}</div>
+        </div>`;
+    }).join('')}
+    </div>`;
+}
+
+document.querySelectorAll('.viewer-workload-scope').forEach(btn => {
+  btn.addEventListener('click', () => {
+    viewerWorkloadScope = btn.dataset.scope;
+    document.querySelectorAll('.viewer-workload-scope').forEach(b => {
+      const active = b === btn;
+      b.classList.toggle('bg-primary',    active);
+      b.classList.toggle('text-white',    active);
+      b.classList.toggle('text-gray-500', !active);
+    });
+    renderViewerWorkload();
+  });
 });
 
 // ─── Init ─────────────────────────────────────────────────────────────────────

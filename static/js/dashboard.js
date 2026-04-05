@@ -447,6 +447,7 @@ async function loadShifts() {
     if (!currentDay || !eventDates.includes(currentDay)) currentDay = eventDates[0] || null;
     renderDayTabs();
     renderShiftBoard();
+    if (!$('workload-panel').classList.contains('hidden')) renderWorkloadPanel();
   } catch (err) {
     $('shift-board').innerHTML = `<div class="text-center py-10 text-red-400 text-sm">${err.message}</div>`;
   }
@@ -615,15 +616,16 @@ function renderShiftBoard() {
       const hlStyle  = isSearchMatch ? 'outline:2px solid #4DA3FF;outline-offset:-2px;background:rgba(77,163,255,0.07);' : '';
       const copyStyle = isCopySrc ? 'background:rgba(159,122,234,0.12);outline:2px solid #9F7AEA;outline-offset:-2px;' : '';
 
-      // sticky列の背景: コピー元は紫 > 検索ヒットは青 > リーダーは黄 > デフォルト白
-      const stickyBg = isCopySrc ? 'background:rgba(159,122,234,0.12);'
-                     : isSearchMatch ? 'background:rgba(77,163,255,0.10);'
-                     : leaderBg;
+      // sticky列の不透明背景色（スクロール時に後ろのセルが透けないよう必ず solid にする）
+      const stickyBgColor = isCopySrc    ? '#F0EBFF'
+                          : isSearchMatch ? '#EFF6FF'
+                          : m.is_leader   ? '#FEFCE8'
+                          : '#FFFFFF';
 
       return `<tr style="${leaderBg}${dimStyle}${hlStyle}${copyStyle}" data-member-row="${m.id}">
-        <td class="btn-member-row-action sticky left-0 z-10 border-r border-b border-gray-100 px-2 py-1 whitespace-nowrap select-none cursor-pointer hover:brightness-95"
+        <td class="btn-member-row-action sticky left-0 z-10 border-b border-gray-100 px-2 py-1 whitespace-nowrap select-none cursor-pointer"
           data-mid="${m.id}"
-          style="min-width:140px;${stickyBg}${dimStyle}">
+          style="min-width:140px;background:${stickyBgColor};${dimStyle}">
           <div class="flex items-center gap-1.5">
             ${m.is_leader ? '<span class="text-yellow-400 text-xs">★</span>' : ''}
             <div class="flex-1 min-w-0">
@@ -642,8 +644,8 @@ function renderShiftBoard() {
             </button>
           </div>
         </td>
-        <td class="sticky border-r border-b border-gray-100 px-2 py-1 whitespace-nowrap select-none text-[9px] text-gray-400"
-          style="left:140px;min-width:70px;${stickyBg}${dimStyle}">
+        <td class="sticky border-b border-gray-100 px-2 py-1 whitespace-nowrap select-none text-[9px] text-gray-500 font-medium"
+          style="left:140px;min-width:70px;background:${stickyBgColor};${dimStyle};box-shadow:3px 0 5px rgba(0,0,0,0.08)">
           ${m.department || ''}
         </td>
         ${cellsHtml}
@@ -660,11 +662,11 @@ function renderShiftBoard() {
       <thead>
         <tr>
           <th rowspan="2" style="min-width:${MEMBER_W}px;top:0"
-            class="sticky left-0 z-30 bg-white border-r border-b-2 border-b-gray-200 border-gray-100 px-3 text-left text-xs text-gray-500 font-medium select-none">
+            class="sticky left-0 z-30 bg-white border-b-2 border-b-gray-200 px-3 text-left text-xs text-gray-500 font-medium select-none">
             メンバー
           </th>
-          <th rowspan="2" style="min-width:${DEPT_W}px;top:0;left:${MEMBER_W}px"
-            class="sticky z-30 bg-white border-r border-b-2 border-b-gray-200 border-gray-100 px-2 text-left text-xs text-gray-500 font-medium select-none">
+          <th rowspan="2" style="min-width:${DEPT_W}px;top:0;left:${MEMBER_W}px;box-shadow:3px 0 5px rgba(0,0,0,0.08)"
+            class="sticky z-30 bg-white border-b-2 border-b-gray-200 px-2 text-left text-xs text-gray-500 font-medium select-none">
             局
           </th>
           ${topRowHtml}
@@ -1699,6 +1701,144 @@ $('board-search')?.addEventListener('keydown', e => {
     const target  = container.scrollTop + offset - (container.clientHeight / 2) + (trRect.height / 2);
     container.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
   }
+});
+
+// ─── Workload Panel ───────────────────────────────────────────────────────────
+let workloadScope = 'day'; // 'day' | 'all'
+
+function calcWorkload(scope) {
+  // メンバーごとの仕事時間(分)を集計
+  const workMin = {}; // memberId → 仕事分数
+  members.forEach(m => { workMin[m.id] = 0; });
+
+  const targetSlots = scope === 'day'
+    ? slots.filter(s => s.date === currentDay)
+    : slots;
+
+  targetSlots.forEach(slot => {
+    const dur = timeToMin(slot.end_time) - timeToMin(slot.start_time);
+    slot.assignments.forEach(a => {
+      if (workMin[a.member_id] !== undefined) workMin[a.member_id] += dur;
+    });
+  });
+
+  // 全体の最大値（バー幅の基準）
+  const maxMin = Math.max(...Object.values(workMin), 1);
+
+  return members.map(m => ({
+    id: m.id,
+    name: m.name,
+    department: m.department || '',
+    grade: m.grade || '',
+    is_leader: m.is_leader,
+    workMin: workMin[m.id] || 0,
+    maxMin,
+  })).sort((a, b) => b.workMin - a.workMin);
+}
+
+function fmtMin(min) {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return h > 0 ? `${h}時間${m > 0 ? m + '分' : ''}` : `${m}分`;
+}
+
+function renderWorkloadPanel() {
+  const panel = $('workload-panel');
+  const list  = $('workload-list');
+  if (!panel || !list) return;
+
+  const data = calcWorkload(workloadScope);
+  if (!data.length) {
+    list.innerHTML = '<div class="text-center py-8 text-gray-400 text-[11px]">メンバーがいません</div>';
+    return;
+  }
+
+  const maxMin = data[0].maxMin;
+  // 平均と最大・最小
+  const total = data.reduce((s, d) => s + d.workMin, 0);
+  const avg   = Math.round(total / data.length);
+  const maxWork = data[0].workMin;
+  const minWork = data[data.length - 1].workMin;
+
+  // 不均衡度（最大 - 最小）
+  const diff = maxWork - minWork;
+  const fairColor = diff <= 30 ? '#48BB78' : diff <= 90 ? '#F6AD55' : '#F87171';
+  const fairLabel = diff <= 30 ? '均等' : diff <= 90 ? 'やや偏り' : '偏り大';
+
+  list.innerHTML = `
+    <div class="mb-2 px-1">
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-[10px] text-gray-400">公平性</span>
+        <span class="text-[10px] font-bold" style="color:${fairColor}">${fairLabel}</span>
+      </div>
+      <div class="flex justify-between text-[9px] text-gray-400">
+        <span>平均: ${fmtMin(avg)}</span>
+        <span>差: ${fmtMin(diff)}</span>
+      </div>
+    </div>
+    <div class="space-y-1.5">
+    ${data.map(d => {
+      const pct  = maxMin > 0 ? Math.round((d.workMin / maxMin) * 100) : 0;
+      const over = avg > 0 && d.workMin > avg * 1.3;
+      const under = avg > 0 && d.workMin < avg * 0.7 && d.workMin > 0;
+      const barColor = over ? '#F87171' : under ? '#60A5FA' : '#4DA3FF';
+      const diffFromAvg = d.workMin - avg;
+      const sign = diffFromAvg >= 0 ? '+' : '';
+      return `
+        <div class="bg-surface rounded-lg px-2 py-1.5">
+          <div class="flex items-center gap-1 mb-1">
+            ${d.is_leader ? '<span class="text-yellow-400 text-[9px]">★</span>' : ''}
+            <span class="text-[10px] font-semibold text-gray-800 truncate flex-1">${d.name}</span>
+            <span class="text-[9px] font-bold flex-shrink-0" style="color:${barColor}">${fmtMin(d.workMin)}</span>
+          </div>
+          <div class="w-full bg-gray-100 rounded-full h-1.5 mb-0.5">
+            <div class="h-1.5 rounded-full transition-all" style="width:${pct}%;background:${barColor}"></div>
+          </div>
+          <div class="text-[9px] text-gray-400 text-right">${sign}${fmtMin(Math.abs(diffFromAvg))}</div>
+        </div>`;
+    }).join('')}
+    </div>`;
+}
+
+function showWorkloadPanel() {
+  $('workload-panel').classList.remove('hidden');
+  $('workload-panel').classList.add('flex');
+  $('btn-open-workload').classList.add('hidden');
+  renderWorkloadPanel();
+}
+
+function hideWorkloadPanel() {
+  $('workload-panel').classList.add('hidden');
+  $('workload-panel').classList.remove('flex');
+  $('btn-open-workload').classList.remove('hidden');
+}
+
+// シフトタブを表示したとき自動で開く
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (btn.dataset.tab === 'shift') {
+      $('btn-open-workload').classList.remove('hidden');
+    } else {
+      $('btn-open-workload').classList.add('hidden');
+      hideWorkloadPanel();
+    }
+  });
+});
+
+$('btn-open-workload').addEventListener('click', showWorkloadPanel);
+$('btn-close-workload').addEventListener('click', hideWorkloadPanel);
+
+document.querySelectorAll('.workload-scope-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    workloadScope = btn.dataset.scope;
+    document.querySelectorAll('.workload-scope-btn').forEach(b => {
+      const active = b === btn;
+      b.classList.toggle('bg-primary', active);
+      b.classList.toggle('text-white', active);
+      b.classList.toggle('text-gray-500', !active);
+    });
+    renderWorkloadPanel();
+  });
 });
 
 // ─── Init ─────────────────────────────────────────────────────────────────────

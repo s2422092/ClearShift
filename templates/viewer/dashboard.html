@@ -75,10 +75,23 @@
         </div>
       </div>
     </div>
-    <!-- ボード（横スクロール + 縦スクロール） -->
-    <div id="board-wrapper" class="overflow-auto" style="height:calc(100svh - 155px)">
-      <div id="all-shifts-board">
-        <div class="text-center py-10 text-gray-400 text-sm">読み込み中...</div>
+    <!-- ボード + 工数パネル -->
+    <div class="flex overflow-hidden" style="height:calc(100svh - 155px)">
+      <div id="board-wrapper" class="flex-1 overflow-auto">
+        <div id="all-shifts-board">
+          <div class="text-center py-10 text-gray-400 text-sm">読み込み中...</div>
+        </div>
+      </div>
+      <!-- 工数サイドバー（閲覧者用） -->
+      <div id="viewer-workload-panel" class="flex-shrink-0 w-44 border-l border-gray-100 bg-white flex flex-col overflow-hidden">
+        <div class="px-3 py-2 border-b border-gray-100">
+          <span class="text-[11px] font-bold text-gray-600">仕事の公平性</span>
+        </div>
+        <div class="px-2 py-1.5 border-b border-gray-50 flex gap-1">
+          <button class="viewer-workload-scope flex-1 py-1 text-[10px] font-medium rounded-md bg-primary text-white" data-scope="day">今日</button>
+          <button class="viewer-workload-scope flex-1 py-1 text-[10px] font-medium rounded-md text-gray-500 hover:bg-surface" data-scope="all">全日程</button>
+        </div>
+        <div id="viewer-workload-list" class="flex-1 overflow-y-auto px-2 py-2 space-y-1.5"></div>
       </div>
     </div>
   </div>
