@@ -743,3 +743,43 @@ def api_availabilities(event_id):
     for m in members:
         result[m.id] = [a.to_dict() for a in m.availabilities]
     return jsonify(result)
+
+
+# ── API: Notifications ────────────────────────────────────────────────────────
+
+@admin_bp.route('/api/events/<int:event_id>/notifications', methods=['GET'])
+@login_required
+def api_notifications(event_id):
+    _can_access_event(event_id)
+    assignments = (
+        ShiftAssignment.query
+        .join(ShiftSlot)
+        .filter(
+            ShiftSlot.event_id == event_id,
+            ShiftAssignment.status.in_(['absent', 'late']),
+            ShiftAssignment.reported_at.isnot(None),
+        )
+        .order_by(ShiftAssignment.reported_at.desc())
+        .all()
+    )
+    jobs = {j.id: j for j in JobType.query.filter_by(event_id=event_id).all()}
+    members = {m.id: m for m in EventMember.query.filter_by(event_id=event_id).all()}
+    result = []
+    for a in assignments:
+        slot = a.slot
+        m = members.get(a.member_id)
+        job = jobs.get(slot.job_type_id)
+        result.append({
+            'assignment_id': a.id,
+            'member_name': m.name if m else '',
+            'member_department': m.department if m else '',
+            'date': slot.date.isoformat(),
+            'start_time': slot.start_time.strftime('%H:%M'),
+            'end_time': slot.end_time.strftime('%H:%M'),
+            'role': slot.role or '',
+            'status': a.status,
+            'note': a.note or '',
+            'reported_at': a.reported_at.isoformat() if a.reported_at else None,
+            'job_color': job.color if job else '#4DA3FF',
+        })
+    return jsonify(result)

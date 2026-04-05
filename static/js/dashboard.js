@@ -1870,5 +1870,78 @@ async function downloadShiftBoardPDF() {
 
 $('btn-download-pdf')?.addEventListener('click', downloadShiftBoardPDF);
 
+// ─── Notifications ────────────────────────────────────────────────────────────
+const STATUS_JP = { absent: '欠席', late: '遅刻' };
+const STATUS_COLOR_NOTIF = { absent: '#EF4444', late: '#F59E0B' };
+
+async function loadNotifications() {
+  try {
+    const data = await apiFetch(`/api/events/${EVENT_ID}/notifications`);
+    const badge = $('notif-badge');
+    if (data.length > 0) {
+      badge.textContent = data.length > 99 ? '99+' : data.length;
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
+    renderNotifList(data);
+  } catch (_) {}
+}
+
+function renderNotifList(items) {
+  const list = $('notif-list');
+  if (!items.length) {
+    list.innerHTML = '<div class="py-8 text-center text-gray-400 text-sm">報告はありません</div>';
+    return;
+  }
+  list.innerHTML = items.map(n => {
+    const color = STATUS_COLOR_NOTIF[n.status] || '#6B7280';
+    const label = STATUS_JP[n.status] || n.status;
+    const d = new Date(n.date + 'T00:00:00');
+    const dateStr = d.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' });
+    const reportedAt = n.reported_at
+      ? new Date(n.reported_at).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : '';
+    return `
+      <div class="px-4 py-3">
+        <div class="flex items-start gap-3">
+          <div class="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style="background:${color}"></div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-sm font-semibold text-gray-800">${n.member_name}</span>
+              ${n.member_department ? `<span class="text-xs text-gray-400">${n.member_department}</span>` : ''}
+              <span class="text-xs font-bold px-1.5 py-0.5 rounded-full text-white" style="background:${color}">${label}</span>
+            </div>
+            <div class="text-xs text-gray-600 mt-0.5">${dateStr} &nbsp;${n.start_time}〜${n.end_time}${n.role ? ' &nbsp;' + n.role : ''}</div>
+            ${n.note ? `<div class="text-xs text-gray-400 mt-0.5 truncate">${n.note}</div>` : ''}
+            ${reportedAt ? `<div class="text-[10px] text-gray-300 mt-0.5">${reportedAt} 報告</div>` : ''}
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+const btnNotif  = $('btn-notifications');
+const notifPanel = $('notif-panel');
+const btnNotifClose = $('btn-notif-close');
+
+btnNotif?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const isOpen = !notifPanel.classList.contains('hidden');
+  notifPanel.classList.toggle('hidden', isOpen);
+  if (!isOpen) loadNotifications();
+});
+
+btnNotifClose?.addEventListener('click', () => notifPanel.classList.add('hidden'));
+
+document.addEventListener('click', (e) => {
+  if (!notifPanel?.contains(e.target) && !btnNotif?.contains(e.target)) {
+    notifPanel?.classList.add('hidden');
+  }
+});
+
+setInterval(loadNotifications, 30000);
+loadNotifications();
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 loadShifts();

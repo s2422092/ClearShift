@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, redirect, url_for, request, jsonify, session
 from models import db, Event, EventMember, ShiftSlot, ShiftAssignment, Availability, JobType
-from datetime import date
+from datetime import date, datetime
 
 viewer_bp = Blueprint('viewer', __name__)
 
@@ -78,7 +78,13 @@ def api_my_shifts(event_id):
             if other_a.member_id != member.id:
                 m = EventMember.query.get(other_a.member_id)
                 if m:
-                    colleagues.append({'name': m.name, 'department': m.department, 'grade': m.grade})
+                    colleagues.append({
+                        'member_id': m.id,
+                        'name': m.name,
+                        'department': m.department,
+                        'grade': m.grade,
+                        'status': other_a.status,
+                    })
         result.append({
             'slot_id': slot.id,
             'date': slot.date.isoformat(),
@@ -178,5 +184,64 @@ def api_submit_availability(event_id):
             )
             db.session.add(avail)
 
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@viewer_bp.route('/event/<int:event_id>/api/report-status', methods=['POST'])
+def api_report_status(event_id):
+    event = Event.query.get_or_404(event_id)
+    member = get_current_viewer(event_id)
+    if not member:
+        return jsonify({'error': 'ログインしてください。'}), 401
+
+    data = request.get_json()
+    slot_id = data.get('slot_id')
+    status = data.get('status')
+    note = data.get('note', '')
+
+    if status not in ('absent', 'late', 'scheduled'):
+        return jsonify({'error': '無効なステータスです。'}), 400
+
+    assignment = ShiftAssignment.query.filter_by(slot_id=slot_id, member_id=member.id).first()
+    if not assignment:
+        return jsonify({'error': '割り当てが見つかりません。'}), 404
+
+    assignment.status = status
+    assignment.note = note
+    assignment.reported_at = datetime.utcnow() if status in ('absent', 'late') else None
+    db.session.commit()
+    return jsonify({'ok': True, 'status': status})
+
+
+@viewer_bp.route('/event/<int:event_id>/api/report-partner-absent', methods=['POST'])
+def api_report_partner_absent(event_id):
+    """現場にいるメンバーが、同じシフトのペアが来ていないことを報告する"""
+    event = Event.query.get_or_404(event_id)
+    reporter = get_current_viewer(event_id)
+    if not reporter:
+        return jsonify({'error': 'ログインしてください。'}), 401
+
+    data = request.get_json()
+    slot_id = data.get('slot_id')
+    target_member_id = data.get('member_id')
+
+    # 報告者が該当スロットにいることを確認
+    reporter_assignment = ShiftAssignment.query.filter_by(
+        slot_id=slot_id, member_id=reporter.id
+    ).first()
+    if not reporter_assignment:
+        return jsonify({'error': '報告者がこのシフトに割り当てられていません。'}), 403
+
+    # 対象メンバーの割り当てを取得
+    target_assignment = ShiftAssignment.query.filter_by(
+        slot_id=slot_id, member_id=target_member_id
+    ).first()
+    if not target_assignment:
+        return jsonify({'error': '対象メンバーが見つかりません。'}), 404
+
+    target_assignment.status = 'absent'
+    target_assignment.reported_at = datetime.utcnow()
+    target_assignment.note = f'{reporter.name} が報告'
     db.session.commit()
     return jsonify({'ok': True})

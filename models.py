@@ -142,6 +142,7 @@ class ShiftAssignment(db.Model):
     member_id = db.Column(db.Integer, db.ForeignKey('event_members.id'), nullable=False)
     status = db.Column(db.String(50), default='scheduled')  # scheduled, absent, late
     note = db.Column(db.Text)
+    reported_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
@@ -153,6 +154,7 @@ class ShiftAssignment(db.Model):
             'member_department': self.member.department if self.member else None,
             'status': self.status,
             'note': self.note,
+            'reported_at': self.reported_at.isoformat() if self.reported_at else None,
         }
 
 

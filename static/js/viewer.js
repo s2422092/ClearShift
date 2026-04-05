@@ -166,40 +166,56 @@ function renderMyShifts() {
 
       const s = item.shift;
       const color = s.job_color || '#4DA3FF';
+      const colleaguesHtml = (s.colleagues && s.colleagues.length)
+        ? `<div class="mt-2 space-y-1">
+            <div class="text-[10px] text-gray-400 font-medium mb-1">同じシフトのメンバー</div>
+            ${s.colleagues.map(c => `
+              <div class="flex items-center gap-2 py-1 px-2 bg-gray-50 rounded-lg">
+                <div class="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                  <span class="text-[10px] font-bold text-primary">${c.name[0]}</span>
+                </div>
+                <div class="flex-1 min-w-0">
+                  <span class="text-xs font-medium text-gray-800">${c.name}</span>
+                  ${c.department ? `<span class="text-[10px] text-gray-400 ml-1">${c.department}</span>` : ''}
+                </div>
+                <button class="partner-absent-btn flex-shrink-0 text-[10px] font-medium px-2 py-1 rounded-md border transition-colors
+                  ${c.status === 'absent' ? 'bg-red-500 text-white border-red-500' : 'bg-white text-red-400 border-red-200 hover:bg-red-50'}"
+                  data-slot="${s.slot_id}" data-member="${c.member_id}" data-name="${c.name}">
+                  ${c.status === 'absent' ? '報告済み' : 'いない'}
+                </button>
+              </div>`).join('')}
+          </div>`
+        : '';
       return `
-        <button class="my-shift-card w-full text-left flex items-center gap-3 px-4 py-3 hover:bg-gray-50 active:bg-gray-100 transition-colors"
-          data-slot="${s.slot_id}">
-          <div class="w-1 self-stretch rounded-full flex-shrink-0" style="background:${color}"></div>
-          <div class="text-center flex-shrink-0" style="min-width:48px">
-            <div class="text-sm font-bold" style="color:${color}">${s.start_time}</div>
-            <div class="text-[11px] text-gray-400">${s.end_time}</div>
-          </div>
-          <div class="flex-1 min-w-0">
-            <div class="text-sm font-semibold text-gray-900">${s.role || '（役割未設定）'}</div>
-            ${s.location ? `
-              <div class="flex items-center gap-1 mt-0.5">
-                <svg class="w-3 h-3 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
-                </svg>
-                <span class="text-xs text-gray-400 truncate">${s.location}</span>
-              </div>` : ''}
-            ${s.colleagues && s.colleagues.length ? `
-              <div class="text-[11px] text-gray-400 mt-0.5 truncate">
-                一緒に: ${s.colleagues.slice(0, 3).map(c => c.name).join('、')}${s.colleagues.length > 3 ? ` 他${s.colleagues.length - 3}人` : ''}
-              </div>` : ''}
-          </div>
-          <div class="flex flex-col items-end gap-1 flex-shrink-0">
-            <span class="text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLOR[s.status] || STATUS_COLOR.scheduled}">
-              ${STATUS_LABEL[s.status] || s.status}
-            </span>
-            <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-            </svg>
-          </div>
-        </button>`;
-    }).join('<div class="border-t border-gray-50 mx-4"></div>');
+        <div class="px-4 py-3">
+          <button class="my-shift-card w-full text-left flex items-center gap-3 hover:bg-gray-50 active:bg-gray-100 transition-colors rounded-xl px-2 py-1.5"
+            data-slot="${s.slot_id}">
+            <div class="w-1 self-stretch rounded-full flex-shrink-0" style="background:${color}"></div>
+            <div class="text-center flex-shrink-0" style="min-width:48px">
+              <div class="text-sm font-bold" style="color:${color}">${s.start_time}</div>
+              <div class="text-[11px] text-gray-400">${s.end_time}</div>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-semibold text-gray-900">${s.role || '（役割未設定）'}</div>
+              ${s.location ? `
+                <div class="flex items-center gap-1 mt-0.5">
+                  <svg class="w-3 h-3 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                  </svg>
+                  <span class="text-xs text-gray-400 truncate">${s.location}</span>
+                </div>` : ''}
+            </div>
+            <div class="flex-shrink-0">
+              <span class="text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLOR[s.status] || STATUS_COLOR.scheduled}">
+                ${STATUS_LABEL[s.status] || s.status}
+              </span>
+            </div>
+          </button>
+          ${colleaguesHtml}
+        </div>`;
+    }).join('<div class="border-t border-gray-50 mx-4 my-0"></div>');
 
     return `
       <div class="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
@@ -220,6 +236,49 @@ function renderMyShifts() {
       if (shift) openShiftDetailModal(shift);
     });
   });
+
+  // ペア欠席報告ボタン
+  list.querySelectorAll('.partner-absent-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (btn.textContent.trim() === '報告済み') return;
+      const slotId    = parseInt(btn.dataset.slot);
+      const memberId  = parseInt(btn.dataset.member);
+      const name      = btn.dataset.name;
+      if (!confirm(`${name} さんが来ていないことを報告しますか？`)) return;
+      btn.disabled = true;
+      try {
+        const res = await fetch(`/event/${EVENT_ID}/api/report-partner-absent`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slot_id: slotId, member_id: memberId }),
+        });
+        if (!res.ok) throw new Error();
+        // ローカル状態を更新して再描画
+        const shift = myShifts.find(s => s.slot_id === slotId);
+        if (shift && shift.colleagues) {
+          const col = shift.colleagues.find(c => c.member_id === memberId);
+          if (col) col.status = 'absent';
+        }
+        renderMyShifts();
+        showReportToast('partner');
+      } catch {
+        btn.disabled = false;
+        alert('送信に失敗しました。');
+      }
+    });
+  });
+}
+
+function showReportToast(status) {
+  const msg = status === 'partner' ? '欠席を管理者に報告しました' : status === 'absent' ? '欠席を報告しました' : status === 'late' ? '遅刻を報告しました' : '報告を取り消しました';
+  const bg  = status === 'partner' ? '#EF4444' : status === 'absent' ? '#EF4444' : status === 'late' ? '#F59E0B' : '#6B7280';
+  const toast = document.createElement('div');
+  toast.className = 'fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl text-sm font-medium text-white shadow-lg transition-opacity';
+  toast.style.background = bg;
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 2500);
 }
 
 // ─── シフト詳細モーダル ────────────────────────────────────────────────────────
