@@ -103,3 +103,99 @@
   background: #4DA3FF;
   transition: width 0.4s ease;
 }
+
+/* ─── Responsive ─────────────────────────────────────────────────────────────── */
+
+/* Admin sidebar: slide-out drawer on mobile */
+#admin-sidebar {
+  transition: transform 0.22s cubic-bezier(.4,0,.2,1);
+}
+@media (max-width: 767px) {
+  #admin-sidebar {
+    position: fixed;
+    inset-y: 0;
+    left: 0;
+    z-index: 50;
+    transform: translateX(-100%);
+    box-shadow: 4px 0 24px rgba(0,0,0,0.12);
+  }
+  #admin-sidebar.sidebar-open {
+    transform: translateX(0);
+  }
+  #sidebar-overlay {
+    display: block;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s ease;
+  }
+  #sidebar-overlay.sidebar-open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+@media (min-width: 768px) {
+  #sidebar-overlay { display: none !important; }
+}
+
+/* Workload / job-dist panel: overlay on mobile */
+@media (max-width: 767px) {
+  #workload-panel,
+  #job-dist-panel {
+    position: fixed !important;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 45;
+    width: min(280px, 80vw) !important;
+    box-shadow: -4px 0 24px rgba(0,0,0,0.15);
+  }
+}
+
+/* Notification panel: avoid overflow on small screens */
+@media (max-width: 500px) {
+  #notif-panel {
+    width: calc(100vw - 32px) !important;
+    right: -48px !important;
+  }
+}
+
+/* Shift board height: use dynamic viewport height */
+#tab-shift {
+  height: calc(100dvh - 130px);
+}
+@media (max-width: 767px) {
+  #tab-shift {
+    height: calc(100dvh - 175px);
+  }
+}
+
+/* Viewer: all-shifts board height */
+@media (max-width: 767px) {
+  #vtab-all .flex.overflow-hidden {
+    height: calc(100dvh - 175px) !important;
+  }
+}
+
+/* Touch target size */
+@media (max-width: 767px) {
+  .board-day-tab,
+  .interval-btn,
+  .tab-btn,
+  .vtab-btn {
+    min-height: 36px;
+  }
+}
+
+/* Modals: full-width on small phones */
+@media (max-width: 480px) {
+  .modal-inner {
+    max-width: 100% !important;
+    margin: 0 !important;
+    border-radius: 1rem 1rem 0 0 !important;
+    max-height: 92dvh !important;
+  }
+  .modal-wrap {
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+}
