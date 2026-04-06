@@ -892,10 +892,9 @@ function renderShiftBoard() {
 
 function clearBoardSearch() {
   if (!boardSearchQuery) return;
-  boardSearchQuery = '';
   const el = $('board-search');
   if (el) el.value = '';
-  renderShiftBoard();
+  applyBoardSearch('');
 }
 
 function handleBoardCellClick(memberId, timeStr, cols) {
@@ -1947,12 +1946,7 @@ $('form-csv').addEventListener('submit', async e => {
 });
 
 // ─── Board Search ─────────────────────────────────────────────────────────────
-$('board-search')?.addEventListener('input', e => {
-  if (!e.target.value.trim()) { boardSearchQuery = ''; renderShiftBoard(); }
-});
-$('board-search')?.addEventListener('keydown', e => {
-  if (e.key !== 'Enter') return;
-  const query = e.target.value.trim();
+function applyBoardSearch(query) {
   boardSearchQuery = query;
   renderShiftBoard();
 
@@ -1960,20 +1954,28 @@ $('board-search')?.addEventListener('keydown', e => {
 
   // ヒットした最初の行を画面中央へスクロール
   const container = $('shift-board-container');
-  const firstMatch = container?.querySelector(`tr[data-member-row]`
-    + `:is(${
-      members
-        .filter(m => m.name.includes(query))
-        .map(m => `[data-member-row="${m.id}"]`)
-        .join(',') || '[data-member-row="-1"]'
-    })`);
+  const matchedIds = members
+    .filter(m => m.name.includes(query))
+    .map(m => `[data-member-row="${m.id}"]`);
+  if (!matchedIds.length || !container) return;
 
-  if (firstMatch && container) {
-    const trRect  = firstMatch.getBoundingClientRect();
-    const boxRect = container.getBoundingClientRect();
-    const offset  = firstMatch.offsetTop - container.scrollTop;
-    const target  = container.scrollTop + offset - (container.clientHeight / 2) + (trRect.height / 2);
+  const firstMatch = container.querySelector('tr' + matchedIds[0]);
+  if (firstMatch) {
+    const offset = firstMatch.offsetTop - container.scrollTop;
+    const target = container.scrollTop + offset - container.clientHeight / 2 + firstMatch.offsetHeight / 2;
     container.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+  }
+}
+
+$('board-search')?.addEventListener('input', e => {
+  applyBoardSearch(e.target.value.trim());
+});
+$('board-search')?.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    e.target.value = '';
+    applyBoardSearch('');
+  } else if (e.key === 'Enter') {
+    applyBoardSearch(e.target.value.trim());
   }
 });
 
@@ -2330,4 +2332,7 @@ setInterval(loadNotifications, 30000);
 loadNotifications();
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
+// 初期表示はシフトタブなのでフローティングボタンを表示
+$('btn-open-workload')?.classList.remove('hidden');
+$('btn-open-job-dist')?.classList.remove('hidden');
 loadShifts();
