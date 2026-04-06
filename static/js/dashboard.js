@@ -1982,25 +1982,6 @@ function openAssignModal(slotId) {
   modalAssign.classList.remove('hidden');
 }
 
-// ─── Auto Generate ────────────────────────────────────────────────────────────
-const modalAutoGen = $('modal-auto-gen');
-$('btn-auto-gen').addEventListener('click', () => modalAutoGen.classList.remove('hidden'));
-document.querySelectorAll('.autogen-close').forEach(b =>
-  b.addEventListener('click', () => modalAutoGen.classList.add('hidden'))
-);
-
-$('btn-do-autogen').addEventListener('click', async () => {
-  try {
-    const clearExisting = $('autogen-clear').checked;
-    const res = await apiFetch(`/api/events/${EVENT_ID}/auto-generate`, {
-      method: 'POST',
-      body: JSON.stringify({ clear_existing: clearExisting }),
-    });
-    modalAutoGen.classList.add('hidden');
-    loadShifts();
-    showToast(`自動生成完了: ${res.assigned}件割り当てました`);
-  } catch (err) { showToast(err.message, true); }
-});
 
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
