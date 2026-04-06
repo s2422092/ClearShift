@@ -2191,32 +2191,79 @@ document.querySelectorAll('.workload-scope-btn').forEach(btn => {
 // ─── PDF Download ─────────────────────────────────────────────────────────────
 async function downloadShiftBoardPDF() {
   const btn = $('btn-download-pdf');
-  const target = $('shift-board');
-  if (!target) return;
+  const board = $('shift-board');
+  const container = $('shift-board-container');
+  if (!board) return;
 
   const original = btn.textContent;
   btn.textContent = '生成中...';
   btn.disabled = true;
 
-  try {
-    const canvas = await html2canvas(target, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
-    const { jsPDF } = window.jspdf;
-    const isLandscape = canvas.width > canvas.height;
-    const pdf = new jsPDF({ orientation: isLandscape ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' });
-    const pageW = pdf.internal.pageSize.getWidth();
-    const pageH = pdf.internal.pageSize.getHeight();
-    const ratio = canvas.width / canvas.height;
-    const imgW = pageW;
-    const imgH = imgW / ratio;
+  // スクロールコンテナを一時的に解除して全体を見えるようにする
+  const prevContainerStyle = container ? {
+    overflow: container.style.overflow,
+    width: container.style.width,
+    height: container.style.height,
+  } : null;
+  const prevBoardStyle = {
+    position: board.style.position,
+    width: board.style.width,
+  };
+  const scrollLeft = container?.scrollLeft || 0;
+  const scrollTop  = container?.scrollTop  || 0;
 
-    if (imgH <= pageH) {
-      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, imgW, imgH);
+  try {
+    if (container) {
+      container.style.overflow = 'visible';
+      container.style.width = 'max-content';
+      container.style.height = 'auto';
+    }
+    board.style.position = 'relative';
+    board.style.width = 'max-content';
+
+    // ボードの実際のサイズで全体をキャプチャ
+    const fullW = board.scrollWidth;
+    const fullH = board.scrollHeight;
+
+    const canvas = await html2canvas(board, {
+      scale: 1.5,
+      useCORS: true,
+      backgroundColor: '#ffffff',
+      width: fullW,
+      height: fullH,
+      windowWidth: fullW,
+      windowHeight: fullH,
+      scrollX: 0,
+      scrollY: 0,
+    });
+
+    const { jsPDF } = window.jspdf;
+    // 常にランドスケープA4（横長シフト表に適している）
+    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const pageW = pdf.internal.pageSize.getWidth();  // 297mm
+    const pageH = pdf.internal.pageSize.getHeight(); // 210mm
+
+    // 画像を mm に換算（96dpi → mm: 1px = 25.4/96 mm、scale=1.5 考慮）
+    const pxPerMm = (96 * 1.5) / 25.4;
+    const imgW_mm = canvas.width  / pxPerMm;
+    const imgH_mm = canvas.height / pxPerMm;
+
+    // ページ幅に合わせてスケール
+    const scale = pageW / imgW_mm;
+    const scaledW = imgW_mm * scale;  // = pageW
+    const scaledH = imgH_mm * scale;
+
+    const imgData = canvas.toDataURL('image/png');
+
+    if (scaledH <= pageH) {
+      // 1ページに収まる
+      pdf.addImage(imgData, 'PNG', 0, 0, scaledW, scaledH);
     } else {
-      // 縦に長い場合は複数ページ
+      // 縦に複数ページ
       let y = 0;
-      while (y < imgH) {
+      while (y < scaledH) {
         if (y > 0) pdf.addPage();
-        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, -y, imgW, imgH);
+        pdf.addImage(imgData, 'PNG', 0, -y, scaledW, scaledH);
         y += pageH;
       }
     }
@@ -2224,8 +2271,20 @@ async function downloadShiftBoardPDF() {
     const dateLabel = currentDay || 'シフト表';
     pdf.save(`シフト表_${dateLabel}.pdf`);
   } catch (e) {
+    console.error(e);
     alert('PDFの生成に失敗しました。');
   } finally {
+    // スタイルを元に戻す
+    if (container && prevContainerStyle) {
+      container.style.overflow = prevContainerStyle.overflow;
+      container.style.width    = prevContainerStyle.width;
+      container.style.height   = prevContainerStyle.height;
+      container.scrollLeft = scrollLeft;
+      container.scrollTop  = scrollTop;
+    }
+    board.style.position = prevBoardStyle.position;
+    board.style.width    = prevBoardStyle.width;
+
     btn.textContent = original;
     btn.disabled = false;
   }
