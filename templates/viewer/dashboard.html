@@ -170,12 +170,14 @@
   </div>
 </div>
 
+<script id="viewer-day-labels-data" type="application/json">{{ event.get_day_labels() | tojson }}</script>
 <script>
 const EVENT_ID    = {{ event.id }};
 const MEMBER_NAME = "{{ member.name }}";
 const MY_MEMBER_ID = {{ member.id }};
 const EVENT_START  = "{{ event.start_date.isoformat() }}";
 const EVENT_END    = "{{ event.end_date.isoformat() }}";
+var DAY_LABELS = JSON.parse(document.getElementById('viewer-day-labels-data').textContent || '{}');
 </script>
 {% endblock %}
 

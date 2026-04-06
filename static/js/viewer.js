@@ -412,11 +412,18 @@ function renderViewerDayTabs() {
   if (!container) return;
   container.innerHTML = viewerEventDates.map(date => {
     const d = new Date(date + 'T00:00:00');
-    const label = d.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' });
+    const dateStr = d.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' });
+    const customLabel = (typeof DAY_LABELS !== 'undefined' && DAY_LABELS[date]) || '';
     const active = date === viewerCurrentDay;
-    return `<button class="viewer-day-tab flex-shrink-0 px-2.5 py-1 text-xs font-medium rounded-lg transition-colors
+    const inner = customLabel
+      ? `<span class="flex flex-col items-start leading-tight">
+           <span>${customLabel}</span>
+           <span class="${active ? 'opacity-60' : 'text-gray-400'}" style="font-size:9px;font-weight:400">${dateStr}</span>
+         </span>`
+      : dateStr;
+    return `<button class="viewer-day-tab flex-shrink-0 flex items-center px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors
       ${active ? 'bg-primary text-white' : 'text-gray-600 hover:bg-surface border border-transparent hover:border-gray-200'}"
-      data-date="${date}">${label}</button>`;
+      data-date="${date}">${inner}</button>`;
   }).join('');
   container.querySelectorAll('.viewer-day-tab').forEach(btn => {
     btn.addEventListener('click', () => {

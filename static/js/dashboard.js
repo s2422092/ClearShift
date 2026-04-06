@@ -512,7 +512,6 @@ function renderDayTabs() {
     const dateStr = d.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' });
     const customLabel = DAY_LABELS[date] || '';
     const active = date === currentDay;
-    const displayLabel = customLabel || dateStr;
     const editBtn = active ? `
       <span class="day-tab-edit ml-1 opacity-60 hover:opacity-100 transition-opacity" data-date="${date}" title="日程名を編集">
         <svg class="w-3 h-3 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -520,9 +519,15 @@ function renderDayTabs() {
             d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 112.828 2.828L11.828 15.828a2 2 0 01-1.414.586H9v-1.414A2 2 0 019.414 13z"/>
         </svg>
       </span>` : '';
-    return `<button class="board-day-tab flex-shrink-0 flex items-center px-3 py-1 text-xs font-medium rounded-lg transition-colors
+    const inner = customLabel
+      ? `<span class="flex flex-col items-start leading-tight">
+           <span>${customLabel}${editBtn}</span>
+           <span class="${active ? 'opacity-60' : 'text-gray-400'}" style="font-size:9px;font-weight:400">${dateStr}</span>
+         </span>`
+      : `<span>${dateStr}${editBtn}</span>`;
+    return `<button class="board-day-tab flex-shrink-0 flex items-center px-3 py-1.5 text-xs font-medium rounded-lg transition-colors
       ${active ? 'bg-primary text-white' : 'text-gray-600 hover:bg-surface border border-transparent hover:border-gray-200'}"
-      data-date="${date}">${displayLabel}${editBtn}</button>`;
+      data-date="${date}">${inner}</button>`;
   }).join('');
 
   container.querySelectorAll('.board-day-tab').forEach(btn => {
