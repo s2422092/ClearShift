@@ -972,6 +972,8 @@ function updateBoardHint() {
   } else {
     hint.classList.add('hidden');
     banner.classList.add('hidden');
+    if ($('copy-target-input')) $('copy-target-input').value = '';
+    $('copy-target-dropdown')?.classList.add('hidden');
   }
 }
 
@@ -984,6 +986,7 @@ async function handleBoardCopyClick(targetMemberId) {
       method: 'POST',
     });
     copySourceMemberId = null;
+    closeCopyTargetDropdown();
     await loadShifts();
     showToast(`「${src?.name || ''}」→「${tgt?.name || ''}」にシフトをコピーしました（${res.copied}件）`);
   } catch (err) {
@@ -1177,8 +1180,58 @@ $('btn-cancel-board-select').addEventListener('click', () => {
 });
 $('btn-cancel-copy').addEventListener('click', () => {
   copySourceMemberId = null;
+  closeCopyTargetDropdown();
   updateBoardHint();
   renderShiftBoard();
+});
+
+// ─── コピー先名前入力 ─────────────────────────────────────────────────────────
+function closeCopyTargetDropdown() {
+  $('copy-target-dropdown')?.classList.add('hidden');
+  if ($('copy-target-input')) $('copy-target-input').value = '';
+}
+
+$('copy-target-input').addEventListener('input', function() {
+  const q = this.value.trim();
+  const dropdown = $('copy-target-dropdown');
+  if (!q || copySourceMemberId === null) {
+    dropdown.classList.add('hidden');
+    return;
+  }
+  const matches = members.filter(m =>
+    m.id !== copySourceMemberId && m.name.includes(q)
+  );
+  if (matches.length === 0) {
+    dropdown.innerHTML = '<div class="px-3 py-2 text-xs text-gray-400">該当するメンバーがいません</div>';
+    dropdown.classList.remove('hidden');
+    return;
+  }
+  dropdown.innerHTML = matches.map(m => `
+    <button type="button" class="copy-target-item w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-purple-50 transition-colors" data-mid="${m.id}">
+      <span class="w-5 h-5 rounded-full bg-purple-100 flex items-center justify-center font-bold text-purple-600 flex-shrink-0">${m.name[0]}</span>
+      <span class="font-medium text-gray-800">${m.name}</span>
+      ${m.department ? `<span class="text-gray-400">${m.department}</span>` : ''}
+    </button>`).join('');
+  dropdown.classList.remove('hidden');
+
+  dropdown.querySelectorAll('.copy-target-item').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const targetMid = parseInt(btn.dataset.mid);
+      closeCopyTargetDropdown();
+      await handleBoardCopyClick(targetMid);
+    });
+  });
+});
+
+$('copy-target-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeCopyTargetDropdown();
+});
+
+// ドロップダウン外クリックで閉じる
+document.addEventListener('click', e => {
+  if (!$('copy-target-input')?.contains(e.target) && !$('copy-target-dropdown')?.contains(e.target)) {
+    $('copy-target-dropdown')?.classList.add('hidden');
+  }
 });
 
 // ─── 一括削除モード ───────────────────────────────────────────────────────────
@@ -1193,6 +1246,7 @@ function enterBulkDeleteMode() {
   bulkDeleteMode = true;
   bulkDeleteSelected.clear();
   copySourceMemberId = null;
+  closeCopyTargetDropdown();
   boardSelectStart = null;
   $('bulk-delete-banner').classList.remove('hidden');
   $('btn-bulk-delete-mode').classList.add('bg-red-50', 'text-red-500', 'border-red-300');

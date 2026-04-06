@@ -226,20 +226,28 @@
           <button id="btn-cancel-board-select" class="text-xs text-primary/60 hover:text-primary font-medium flex-shrink-0">キャンセル</button>
         </div>
         <!-- コピーモードバナー -->
-        <div id="copy-mode-banner" class="hidden border-b border-purple-200 px-4 py-2 flex items-center gap-3 flex-shrink-0" style="background:#F5F3FF">
+        <div id="copy-mode-banner" class="hidden border-b border-purple-200 px-3 py-2 flex items-center gap-2 flex-shrink-0" style="background:#F5F3FF">
           <!-- アバター -->
           <div id="copy-banner-avatar"
             class="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold text-white"
             style="background:#9F7AEA"></div>
-          <!-- テキスト -->
-          <div class="flex-1 min-w-0">
+          <!-- テキスト（sm以上） -->
+          <div class="hidden sm:flex items-center gap-1 min-w-0 flex-shrink-0">
             <span class="text-xs font-bold text-purple-700" id="copy-banner-name"></span>
-            <span class="text-xs text-purple-500"> のシフトをコピー中</span>
-            <span class="hidden sm:inline text-xs text-purple-400"> — コピー先のメンバー行をクリック</span>
+            <span class="text-xs text-purple-500">→</span>
+          </div>
+          <!-- コピー先入力 -->
+          <div class="relative flex-1 min-w-0">
+            <input id="copy-target-input" type="text" placeholder="コピー先の名前を入力..."
+              autocomplete="off"
+              class="w-full px-3 py-1.5 text-xs border border-purple-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-purple-300 focus:border-purple-400 placeholder-purple-300 text-purple-800"/>
+            <!-- サジェストドロップダウン -->
+            <div id="copy-target-dropdown"
+              class="hidden absolute left-0 right-0 top-full mt-1 bg-white border border-purple-200 rounded-lg shadow-lg z-[80] max-h-48 overflow-y-auto"></div>
           </div>
           <!-- 解除ボタン -->
           <button id="btn-cancel-copy"
-            class="flex items-center gap-1 text-xs font-medium text-purple-500 hover:text-purple-700 px-2.5 py-1 rounded-lg hover:bg-purple-100 transition-colors flex-shrink-0">
+            class="flex items-center gap-1 text-xs font-medium text-purple-500 hover:text-purple-700 px-2 py-1 rounded-lg hover:bg-purple-100 transition-colors flex-shrink-0">
             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
             </svg>
