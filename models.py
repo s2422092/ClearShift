@@ -41,6 +41,7 @@ class Event(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     share_token = db.Column(db.String(64), unique=True, nullable=True)
+    day_labels_json = db.Column(db.Text, nullable=True)  # {"2024-11-01": "大学祭1日目", ...}
 
     members = db.relationship('EventMember', backref='event', lazy=True, cascade='all, delete-orphan')
     slots = db.relationship('ShiftSlot', backref='event', lazy=True, cascade='all, delete-orphan')
@@ -48,6 +49,15 @@ class Event(db.Model):
 
     def generate_share_token(self):
         self.share_token = secrets.token_urlsafe(24)
+
+    def get_day_labels(self):
+        import json
+        if self.day_labels_json:
+            try:
+                return json.loads(self.day_labels_json)
+            except Exception:
+                return {}
+        return {}
 
     def to_dict(self):
         return {
@@ -60,6 +70,7 @@ class Event(db.Model):
             'created_at': self.created_at.isoformat(),
             'member_count': len(self.members),
             'share_token': self.share_token,
+            'day_labels': self.get_day_labels(),
         }
 
 

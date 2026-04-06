@@ -181,6 +181,10 @@ def api_update_event(event_id):
         event.start_date = date.fromisoformat(data['start_date'])
     if 'end_date' in data:
         event.end_date = date.fromisoformat(data['end_date'])
+    if 'day_labels' in data:
+        import json as _json
+        labels = data['day_labels']
+        event.day_labels_json = _json.dumps(labels) if labels else None
     db.session.commit()
     return jsonify(event.to_dict())
 

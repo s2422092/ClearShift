@@ -508,14 +508,25 @@ function renderDayTabs() {
   if (!container) return;
   container.innerHTML = eventDates.map(date => {
     const d = new Date(date + 'T00:00:00');
-    const label = d.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' });
+    const dateStr = d.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' });
+    const customLabel = DAY_LABELS[date] || '';
     const active = date === currentDay;
-    return `<button class="board-day-tab flex-shrink-0 px-3 py-1 text-xs font-medium rounded-lg transition-colors
+    const displayLabel = customLabel || dateStr;
+    const editBtn = active ? `
+      <span class="day-tab-edit ml-1 opacity-60 hover:opacity-100 transition-opacity" data-date="${date}" title="日程名を編集">
+        <svg class="w-3 h-3 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 112.828 2.828L11.828 15.828a2 2 0 01-1.414.586H9v-1.414A2 2 0 019.414 13z"/>
+        </svg>
+      </span>` : '';
+    return `<button class="board-day-tab flex-shrink-0 flex items-center px-3 py-1 text-xs font-medium rounded-lg transition-colors
       ${active ? 'bg-primary text-white' : 'text-gray-600 hover:bg-surface border border-transparent hover:border-gray-200'}"
-      data-date="${date}">${label}</button>`;
+      data-date="${date}">${displayLabel}${editBtn}</button>`;
   }).join('');
+
   container.querySelectorAll('.board-day-tab').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (e) => {
+      if (e.target.closest('.day-tab-edit')) return; // 編集ボタンはこちらで処理
       currentDay = btn.dataset.date;
       boardSelectStart = null; boardHoverTime = null;
       updateBoardHint(); renderDayTabs(); renderShiftBoard();
@@ -523,6 +534,84 @@ function renderDayTabs() {
       if (!$('job-dist-panel').classList.contains('hidden')) renderJobDistPanel();
     });
   });
+
+  container.querySelectorAll('.day-tab-edit').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openDayLabelEditor(btn.dataset.date);
+    });
+  });
+}
+
+function openDayLabelEditor(date) {
+  // 既存のポップオーバーを閉じる
+  document.getElementById('day-label-popover')?.remove();
+
+  const tabEl = document.querySelector(`.board-day-tab[data-date="${date}"]`);
+  if (!tabEl) return;
+
+  const d = new Date(date + 'T00:00:00');
+  const dateStr = d.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' });
+  const current = DAY_LABELS[date] || '';
+
+  const pop = document.createElement('div');
+  pop.id = 'day-label-popover';
+  pop.className = 'fixed z-[90] bg-white border border-gray-200 rounded-xl shadow-xl p-3 w-64';
+
+  const rect = tabEl.getBoundingClientRect();
+  pop.style.top  = (rect.bottom + 6) + 'px';
+  pop.style.left = Math.min(rect.left, window.innerWidth - 272) + 'px';
+
+  pop.innerHTML = `
+    <p class="text-xs text-gray-400 mb-1.5">${dateStr} の日程名</p>
+    <input id="day-label-input" type="text" value="${current}"
+      placeholder="例: 大学祭1日目"
+      maxlength="30"
+      class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary mb-2"/>
+    <div class="flex gap-2">
+      <button id="day-label-clear" class="flex-1 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">クリア</button>
+      <button id="day-label-save" class="flex-1 py-1.5 text-xs font-medium text-white bg-primary rounded-lg hover:bg-primary-dark transition-colors">保存</button>
+    </div>`;
+  document.body.appendChild(pop);
+
+  const input = document.getElementById('day-label-input');
+  input.focus();
+  input.select();
+
+  const saveDayLabel = async (value) => {
+    const newLabels = { ...DAY_LABELS };
+    if (value.trim()) {
+      newLabels[date] = value.trim();
+    } else {
+      delete newLabels[date];
+    }
+    try {
+      await apiFetch(`/api/events/${EVENT_ID}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ day_labels: newLabels }),
+      });
+      DAY_LABELS = newLabels;
+      pop.remove();
+      renderDayTabs();
+    } catch (err) {
+      showToast(err.message, true);
+    }
+  };
+
+  document.getElementById('day-label-save').addEventListener('click', () => saveDayLabel(input.value));
+  document.getElementById('day-label-clear').addEventListener('click', () => saveDayLabel(''));
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') saveDayLabel(input.value);
+    if (e.key === 'Escape') pop.remove();
+  });
+
+  // ポップオーバー外クリックで閉じる
+  setTimeout(() => {
+    const onOutside = (e) => {
+      if (!pop.contains(e.target)) { pop.remove(); document.removeEventListener('click', onOutside); }
+    };
+    document.addEventListener('click', onOutside);
+  }, 0);
 }
 
 function renderShiftBoard() {

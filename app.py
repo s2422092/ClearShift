@@ -96,6 +96,12 @@ def create_app():
             conn.execute(text(
                 "ALTER TABLE job_types ADD COLUMN IF NOT EXISTS requirements_json TEXT"
             ))
+            conn.execute(text(
+                "ALTER TABLE job_types ADD COLUMN IF NOT EXISTS allowed_departments_json TEXT"
+            ))
+            conn.execute(text(
+                "ALTER TABLE events ADD COLUMN IF NOT EXISTS day_labels_json TEXT"
+            ))
             conn.commit()
 
     return app
