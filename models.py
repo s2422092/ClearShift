@@ -170,17 +170,52 @@ class ShiftAssignment(db.Model):
         }
 
 
+class JobCategory(db.Model):
+    """仕事カテゴリー（メンバーグループ定義）"""
+    __tablename__ = 'job_categories'
+    id = db.Column(db.Integer, primary_key=True)
+    event_id = db.Column(db.Integer, db.ForeignKey('events.id'), nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    category_members = db.relationship(
+        'JobCategoryMember', backref='category', lazy=True, cascade='all, delete-orphan'
+    )
+
+    def get_member_ids(self):
+        return [cm.member_id for cm in self.category_members]
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'event_id': self.event_id,
+            'name': self.name,
+            'member_ids': self.get_member_ids(),
+        }
+
+
+class JobCategoryMember(db.Model):
+    """カテゴリー ↔ メンバー の中間テーブル"""
+    __tablename__ = 'job_category_members'
+    id = db.Column(db.Integer, primary_key=True)
+    category_id = db.Column(db.Integer, db.ForeignKey('job_categories.id', ondelete='CASCADE'), nullable=False)
+    member_id = db.Column(db.Integer, db.ForeignKey('event_members.id', ondelete='CASCADE'), nullable=False)
+    __table_args__ = (db.UniqueConstraint('category_id', 'member_id'),)
+
+
 class JobType(db.Model):
     """仕事定義（シフト枠に紐づくカテゴリ）"""
     __tablename__ = 'job_types'
     id = db.Column(db.Integer, primary_key=True)
     event_id = db.Column(db.Integer, db.ForeignKey('events.id'), nullable=False)
+    category_id = db.Column(db.Integer, db.ForeignKey('job_categories.id', ondelete='SET NULL'), nullable=True)
     title = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text)
     location = db.Column(db.String(200))
     required_count = db.Column(db.Integer, default=1)
     color = db.Column(db.String(7), nullable=False, default='#4DA3FF')
     requirements_json = db.Column(db.Text, nullable=True)
+    allowed_departments_json = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def get_requirements(self):
@@ -192,6 +227,16 @@ class JobType(db.Model):
                 return None
         return None
 
+    def get_allowed_departments(self):
+        """担当可能な局リストを返す（空リスト=制限なし）"""
+        import json
+        if self.allowed_departments_json:
+            try:
+                return json.loads(self.allowed_departments_json)
+            except Exception:
+                return []
+        return []
+
     def to_dict(self):
         return {
             'id': self.id,
@@ -202,6 +247,7 @@ class JobType(db.Model):
             'required_count': self.required_count,
             'color': self.color,
             'requirements': self.get_requirements(),
+            'allowed_departments': self.get_allowed_departments(),
         }
 
 

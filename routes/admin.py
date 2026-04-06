@@ -585,6 +585,9 @@ def api_update_job(event_id, job_id):
     if 'requirements' in data:
         req = data['requirements']
         job.requirements_json = _json.dumps(req) if req else None
+    if 'allowed_departments' in data:
+        depts = data['allowed_departments']
+        job.allowed_departments_json = _json.dumps(depts) if depts else None
     db.session.commit()
     return jsonify(job.to_dict())
 
@@ -610,6 +613,14 @@ def api_assign(event_id, slot_id):
     member_id = data.get('member_id')
 
     member = EventMember.query.filter_by(id=member_id, event_id=event_id).first_or_404()
+
+    # 局制限チェック
+    if slot.job_type_id:
+        job = JobType.query.get(slot.job_type_id)
+        if job:
+            allowed = job.get_allowed_departments()
+            if allowed and member.department not in allowed:
+                return jsonify({'error': f'この仕事（{job.title}）は {", ".join(allowed)} のメンバーのみ担当できます。'}), 400
 
     # 重複チェック
     existing = ShiftAssignment.query.filter_by(slot_id=slot_id, member_id=member_id).first()

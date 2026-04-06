@@ -1144,7 +1144,7 @@ function openBoardSlotModal(memberId, startTime, endTime) {
   // 前回の範囲削除ボタンが残っていれば除去
   $('btn-range-delete-trigger')?.remove();
 
-  populateJobSelect(null);
+  populateJobSelect(null, m?.id || null);
   $('board-slot-error').classList.add('hidden');
   $('modal-board-slot').classList.remove('hidden');
 }
@@ -1177,20 +1177,33 @@ function showBoardSlotRangeConfirm(desc) {
 }
 
 // 共通：仕事ドロップダウンを更新し、選択済みの job をハイライト
-function populateJobSelect(currentJobTypeId) {
+// memberId: 担当メンバーID（局制限チェック用）
+function populateJobSelect(currentJobTypeId, memberId = null) {
   const sel = $('board-slot-job');
+  const member = memberId ? members.find(m => m.id === memberId) : null;
   sel.innerHTML = '<option value="">仕事を選択してください...</option>' +
     jobs.map(j => {
       const countStr = j.requirements?.interval ? `${j.requirements.interval}分ごと設定` : `目安 ${j.required_count}人`;
-      return `<option value="${j.id}" ${j.id === currentJobTypeId ? 'selected' : ''}>${j.title}（${countStr}）</option>`;
+      const allowed = j.allowed_departments || [];
+      const restricted = allowed.length > 0 && member && !allowed.includes(member.department);
+      const label = restricted ? `⛔ ${j.title}（${countStr}）` : `${j.title}（${countStr}）`;
+      return `<option value="${j.id}" ${j.id === currentJobTypeId ? 'selected' : ''} ${restricted ? 'disabled' : ''}>${label}</option>`;
     }).join('');
 
   const updateDetail = () => {
     const job = jobs.find(j => j.id === parseInt(sel.value));
     const detail = $('board-slot-job-detail');
     if (job) {
+      const allowed = job.allowed_departments || [];
+      const restricted = allowed.length > 0 && member && !allowed.includes(member.department);
+      const deptLine = allowed.length > 0
+        ? (restricted
+            ? `<div class="text-red-500 font-medium">⛔ ${allowed.join('・')}以外は担当不可</div>`
+            : `<div class="text-blue-600">担当局: ${allowed.join('・')}</div>`)
+        : '';
       detail.innerHTML = [
         `<div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full flex-shrink-0" style="background:${job.color}"></span><span class="font-semibold" style="color:${job.color}">${job.title}</span></div>`,
+        deptLine,
         job.description ? `<div><span class="text-gray-400">内容:</span> ${job.description}</div>` : '',
         job.location    ? `<div><span class="text-gray-400">集合場所:</span> ${job.location}</div>` : '',
         `<div><span class="text-gray-400">担当目安:</span> ${job.required_count}人</div>`,
@@ -1229,7 +1242,7 @@ function openOccupiedCellMenu(slotId, assignmentId) {
     `<div class="flex justify-between text-xs"><span class="text-gray-500">時間</span><span class="font-semibold text-gray-800">${slot.start_time} 〜 ${slot.end_time}</span></div>`,
   ].join('');
 
-  populateJobSelect(slot.job_type_id);
+  populateJobSelect(slot.job_type_id, member?.id || null);
   $('board-slot-error').classList.add('hidden');
   $('modal-board-slot').classList.remove('hidden');
 }
@@ -1639,6 +1652,7 @@ async function loadJobs() {
   }
 }
 
+
 function renderJobList() {
   const list = $('job-list');
   if (!list) return;
@@ -1675,6 +1689,7 @@ function renderJobList() {
             </svg>
             ${j.requirements?.interval ? `${j.requirements.interval}分ごとに設定` : `目安 ${j.required_count}人`}
           </span>
+          ${(j.allowed_departments || []).length > 0 ? `<span class="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">${j.allowed_departments.join('・')}のみ</span>` : ''}
         </div>
       </div>
       <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 flex-shrink-0">
@@ -1799,6 +1814,26 @@ function openJobModal(job = null) {
     setJobReqInterval(null);
     $('job-count').value = job ? (job.required_count ?? 1) : 1;
   }
+
+  // 担当局の制限UI
+  const allowedDepts = job?.allowed_departments || [];
+  const deptRestrict = $('job-dept-restrict');
+  const deptList = $('job-dept-list');
+  deptRestrict.checked = allowedDepts.length > 0;
+  deptList.classList.toggle('hidden', allowedDepts.length === 0);
+
+  // 局一覧をメンバーから収集
+  const allDepts = [...new Set(members.map(m => m.department).filter(Boolean))].sort();
+  deptList.innerHTML = allDepts.map(dept =>
+    `<label class="flex items-center gap-1.5 text-sm text-gray-700 cursor-pointer">
+      <input type="checkbox" name="job-dept" value="${dept}"
+        class="rounded border-gray-300 text-primary focus:ring-primary/30"
+        ${allowedDepts.includes(dept) ? 'checked' : ''}/>
+      ${dept}
+    </label>`
+  ).join('');
+
+  deptRestrict.onchange = () => deptList.classList.toggle('hidden', !deptRestrict.checked);
   modalAddJob.classList.remove('hidden');
 }
 
@@ -1827,12 +1862,18 @@ $('form-add-job').addEventListener('submit', async e => {
     requirements = { interval: jobReqIntervalMin, counts };
   }
 
+  const deptRestrict = $('job-dept-restrict');
+  const allowed_departments = deptRestrict.checked
+    ? [...document.querySelectorAll('input[name="job-dept"]:checked')].map(el => el.value)
+    : [];
+
   const body = {
     title:          $('job-title').value.trim(),
     description:    $('job-description').value.trim(),
     location:       $('job-location').value.trim(),
     required_count: jobReqIntervalMin ? 1 : (parseInt($('job-count').value) || 1),
     requirements,
+    allowed_departments,
   };
 
   try {

@@ -326,21 +326,23 @@
 
       <!-- 仕事タブ -->
       <div id="tab-jobs" class="tab-content hidden p-6">
-        <div class="flex items-center justify-between mb-4">
-          <div>
-            <h2 class="text-base font-semibold text-gray-800">仕事管理</h2>
-            <p class="text-xs text-gray-400 mt-0.5">シフトに割り当てる仕事を登録してください</p>
+        <div>
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h2 class="text-base font-semibold text-gray-800">仕事一覧</h2>
+              <p class="text-xs text-gray-400 mt-0.5">シフトに割り当てる仕事を登録してください</p>
+            </div>
+            <button id="btn-add-job"
+              class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-primary border border-primary rounded-lg hover:bg-primary-light transition-colors">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+              </svg>
+              追加
+            </button>
           </div>
-          <button id="btn-add-job"
-            class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-primary border border-primary rounded-lg hover:bg-primary-light transition-colors">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-            </svg>
-            追加
-          </button>
-        </div>
-        <div id="job-list" class="space-y-2">
-          <div class="text-center py-8 text-gray-400 text-sm">読み込み中...</div>
+          <div id="job-list" class="space-y-2">
+            <div class="text-center py-8 text-gray-400 text-sm">読み込み中...</div>
+          </div>
         </div>
       </div>
 
@@ -848,6 +850,19 @@
             </button>
           </div>
           <div id="job-req-timed-inputs" class="grid grid-cols-2 gap-x-4 gap-y-1 max-h-52 overflow-y-auto pr-1"></div>
+        </div>
+      </div>
+      <!-- 担当局の制限 -->
+      <div class="border-t border-gray-100 pt-4">
+        <div class="flex items-center justify-between mb-2">
+          <label class="text-sm font-medium text-gray-700">担当局の制限</label>
+          <label class="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
+            <input type="checkbox" id="job-dept-restrict" class="rounded"/>
+            制限する
+          </label>
+        </div>
+        <div id="job-dept-list" class="hidden grid grid-cols-2 gap-1.5 p-3 bg-gray-50 rounded-lg">
+          <!-- JSで動的生成 -->
         </div>
       </div>
       <div id="job-error" class="hidden text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg"></div>
