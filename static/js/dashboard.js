@@ -389,6 +389,7 @@ let pendingBoardSlot = null;  // 新規登録用
 let editingSlot = null;       // 編集モード用 { slotId, assignmentId, memberId }
 let boardSearchQuery = '';    // 名前検索
 let copySourceMemberId = null; // コピー元メンバーID
+let copyTargetIds = new Set(); // コピー先メンバーIDセット
 let bulkDeleteMode = false;   // 一括削除モード
 let bulkDeleteSelected = new Set(); // 選択中の assignmentId
 // day -> Set<memberId>  全日欠席
@@ -1063,6 +1064,8 @@ function updateBoardHint() {
     banner.classList.add('hidden');
     if ($('copy-target-input')) $('copy-target-input').value = '';
     $('copy-target-dropdown')?.classList.add('hidden');
+    copyTargetIds.clear();
+    renderCopyTargetChips();
   }
 }
 
@@ -1269,15 +1272,90 @@ $('btn-cancel-board-select').addEventListener('click', () => {
 });
 $('btn-cancel-copy').addEventListener('click', () => {
   copySourceMemberId = null;
+  copyTargetIds.clear();
   closeCopyTargetDropdown();
+  renderCopyTargetChips();
+  updateCopyExecuteBtn();
   updateBoardHint();
   renderShiftBoard();
 });
 
-// ─── コピー先名前入力 ─────────────────────────────────────────────────────────
+// ─── コピー先名前入力（複数選択対応）────────────────────────────────────────
 function closeCopyTargetDropdown() {
   $('copy-target-dropdown')?.classList.add('hidden');
   if ($('copy-target-input')) $('copy-target-input').value = '';
+}
+
+function updateCopyExecuteBtn() {
+  const btn = $('btn-execute-copy');
+  if (btn) btn.disabled = copyTargetIds.size === 0;
+}
+
+function renderCopyTargetChips() {
+  const area = $('copy-targets-area');
+  if (!area) return;
+  if (copyTargetIds.size === 0) {
+    area.classList.add('hidden');
+    area.innerHTML = '';
+    return;
+  }
+  area.classList.remove('hidden');
+  area.innerHTML = [...copyTargetIds].map(mid => {
+    const m = members.find(x => x.id === mid);
+    if (!m) return '';
+    return `
+      <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-purple-200 text-purple-700 rounded-full text-xs font-medium">
+        ${m.name}
+        <button class="copy-chip-remove w-3.5 h-3.5 flex items-center justify-center text-purple-400 hover:text-purple-700 transition-colors" data-mid="${mid}">
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </span>`;
+  }).join('');
+  area.querySelectorAll('.copy-chip-remove').forEach(btn => {
+    btn.addEventListener('click', () => {
+      copyTargetIds.delete(parseInt(btn.dataset.mid));
+      renderCopyTargetChips();
+      updateCopyExecuteBtn();
+    });
+  });
+}
+
+function addCopyTarget(mid) {
+  if (mid === copySourceMemberId || copyTargetIds.has(mid)) return;
+  copyTargetIds.add(mid);
+  closeCopyTargetDropdown();
+  renderCopyTargetChips();
+  updateCopyExecuteBtn();
+  $('copy-target-input')?.focus();
+}
+
+async function executeCopyToTargets() {
+  if (copySourceMemberId === null || copyTargetIds.size === 0) return;
+  const src = members.find(x => x.id === copySourceMemberId);
+  let totalCopied = 0;
+  const names = [];
+  for (const targetMid of copyTargetIds) {
+    const tgt = members.find(x => x.id === targetMid);
+    try {
+      const res = await apiFetch(`/api/events/${EVENT_ID}/members/${copySourceMemberId}/copy-to/${targetMid}`, {
+        method: 'POST',
+      });
+      totalCopied += res.copied || 0;
+      names.push(tgt?.name || '');
+    } catch (err) {
+      showToast(`${tgt?.name || ''}: ${err.message}`, true);
+    }
+  }
+  copySourceMemberId = null;
+  copyTargetIds.clear();
+  closeCopyTargetDropdown();
+  renderCopyTargetChips();
+  updateCopyExecuteBtn();
+  updateBoardHint();
+  await loadShifts();
+  if (names.length > 0) showToast(`「${src?.name || ''}」→「${names.join('・')}」にコピーしました（${totalCopied}件）`);
 }
 
 $('copy-target-input').addEventListener('input', function() {
@@ -1288,7 +1366,7 @@ $('copy-target-input').addEventListener('input', function() {
     return;
   }
   const matches = members.filter(m =>
-    m.id !== copySourceMemberId && m.name.includes(q)
+    m.id !== copySourceMemberId && !copyTargetIds.has(m.id) && m.name.includes(q)
   );
   if (matches.length === 0) {
     dropdown.innerHTML = '<div class="px-3 py-2 text-xs text-gray-400">該当するメンバーがいません</div>';
@@ -1300,21 +1378,35 @@ $('copy-target-input').addEventListener('input', function() {
       <span class="w-5 h-5 rounded-full bg-purple-100 flex items-center justify-center font-bold text-purple-600 flex-shrink-0">${m.name[0]}</span>
       <span class="font-medium text-gray-800">${m.name}</span>
       ${m.department ? `<span class="text-gray-400">${m.department}</span>` : ''}
+      <span class="ml-auto text-purple-400 text-[10px]">追加</span>
     </button>`).join('');
   dropdown.classList.remove('hidden');
 
   dropdown.querySelectorAll('.copy-target-item').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const targetMid = parseInt(btn.dataset.mid);
-      closeCopyTargetDropdown();
-      await handleBoardCopyClick(targetMid);
-    });
+    btn.addEventListener('click', () => addCopyTarget(parseInt(btn.dataset.mid)));
   });
 });
 
 $('copy-target-input').addEventListener('keydown', function(e) {
-  if (e.key === 'Escape') closeCopyTargetDropdown();
+  if (e.key === 'Escape') {
+    closeCopyTargetDropdown();
+    return;
+  }
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const dropdown = $('copy-target-dropdown');
+    // ドロップダウンの先頭候補を追加
+    const first = dropdown?.querySelector('.copy-target-item');
+    if (first) {
+      addCopyTarget(parseInt(first.dataset.mid));
+    } else if (copyTargetIds.size > 0 && !this.value.trim()) {
+      // 入力が空でターゲットがある → コピー実行
+      executeCopyToTargets();
+    }
+  }
 });
+
+$('btn-execute-copy').addEventListener('click', () => executeCopyToTargets());
 
 // ドロップダウン外クリックで閉じる
 document.addEventListener('click', e => {
@@ -1335,7 +1427,9 @@ function enterBulkDeleteMode() {
   bulkDeleteMode = true;
   bulkDeleteSelected.clear();
   copySourceMemberId = null;
+  copyTargetIds.clear();
   closeCopyTargetDropdown();
+  renderCopyTargetChips();
   boardSelectStart = null;
   $('bulk-delete-banner').classList.remove('hidden');
   $('btn-bulk-delete-mode').classList.add('bg-red-50', 'text-red-500', 'border-red-300');
