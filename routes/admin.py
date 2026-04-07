@@ -1,7 +1,7 @@
-from flask import Blueprint, render_template, redirect, url_for, request, jsonify, session, Response
+from flask import Blueprint, render_template, redirect, url_for, request, jsonify, session, Response, abort
 from flask_login import login_required, current_user
 from models import db, Event, EventMember, ShiftSlot, ShiftAssignment, Availability, EventCollaborator, User, JobType, ShiftAbsence
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, time as time_type
 import csv
 import io
 import json as _builtin_json
@@ -17,11 +17,14 @@ def _jdump(obj):
 
 
 def _user_events():
-    """ログインユーザーが作成 or 参加しているイベント一覧を返す"""
-    own = Event.query.filter_by(creator_id=current_user.id)
-    collab_ids = [c.event_id for c in EventCollaborator.query.filter_by(user_id=current_user.id).all()]
-    shared = Event.query.filter(Event.id.in_(collab_ids)) if collab_ids else Event.query.filter(False)
-    return own.union(shared).order_by(Event.created_at.desc()).all()
+    """ログインユーザーが作成 or 参加しているイベント一覧を返す（2クエリを1つに統合）"""
+    from sqlalchemy import select
+    collab_subq = select(EventCollaborator.event_id).where(
+        EventCollaborator.user_id == current_user.id
+    ).scalar_subquery()
+    return Event.query.filter(
+        (Event.creator_id == current_user.id) | Event.id.in_(collab_subq)
+    ).order_by(Event.created_at.desc()).all()
 
 
 def _can_access_event(event_id):
@@ -31,7 +34,6 @@ def _can_access_event(event_id):
         return event
     if EventCollaborator.query.filter_by(event_id=event_id, user_id=current_user.id).first():
         return event
-    from flask import abort
     abort(403)
 
 
@@ -428,7 +430,6 @@ def api_delete_member_shifts(event_id, member_id):
     if date_str:
         query = query.filter(ShiftSlot.date == date.fromisoformat(date_str))
     if start_time_str and end_time_str:
-        from datetime import time as time_type
         sp = start_time_str.split(':')
         ep = end_time_str.split(':')
         start_t = time_type(int(sp[0]), int(sp[1]))
@@ -632,8 +633,10 @@ def api_delete_job(event_id, job_id):
 def api_assign(event_id, slot_id):
     _can_access_event(event_id)
     slot = ShiftSlot.query.filter_by(id=slot_id, event_id=event_id).first_or_404()
-    data = request.get_json()
+    data = request.get_json() or {}
     member_id = data.get('member_id')
+    if not member_id:
+        return jsonify({'error': 'member_id が必要です。'}), 400
 
     member = EventMember.query.filter_by(id=member_id, event_id=event_id).first_or_404()
 
@@ -660,9 +663,10 @@ def api_assign(event_id, slot_id):
 @login_required
 def api_delete_assignment(assignment_id):
     assignment = ShiftAssignment.query.get_or_404(assignment_id)
-    # 権限確認
-    slot = ShiftSlot.query.get(assignment.slot_id)
-    Event.query.filter_by(id=slot.event_id, creator_id=current_user.id).first_or_404()
+    slot = db.session.get(ShiftSlot, assignment.slot_id)
+    if not slot:
+        abort(404)
+    _can_access_event(slot.event_id)
     db.session.delete(assignment)
     db.session.commit()
     return jsonify({'ok': True})
@@ -672,9 +676,11 @@ def api_delete_assignment(assignment_id):
 @login_required
 def api_update_assignment(assignment_id):
     assignment = ShiftAssignment.query.get_or_404(assignment_id)
-    slot = ShiftSlot.query.get(assignment.slot_id)
-    Event.query.filter_by(id=slot.event_id, creator_id=current_user.id).first_or_404()
-    data = request.get_json()
+    slot = db.session.get(ShiftSlot, assignment.slot_id)
+    if not slot:
+        abort(404)
+    _can_access_event(slot.event_id)
+    data = request.get_json() or {}
     if 'status' in data:
         assignment.status = data['status']
     if 'note' in data:

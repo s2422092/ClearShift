@@ -67,6 +67,8 @@ def api_my_shifts(event_id):
     ).order_by(ShiftSlot.date, ShiftSlot.start_time).all()
 
     jobs = {j.id: j for j in JobType.query.filter_by(event_id=event_id).all()}
+    # 同じスロットの同僚取得用に全メンバーをキャッシュ（N+1クエリを防ぐ）
+    all_members = {m.id: m for m in EventMember.query.filter_by(event_id=event_id).all()}
 
     result = []
     for a in assignments:
@@ -76,7 +78,7 @@ def api_my_shifts(event_id):
         colleagues = []
         for other_a in slot.assignments:
             if other_a.member_id != member.id:
-                m = EventMember.query.get(other_a.member_id)
+                m = all_members.get(other_a.member_id)
                 if m:
                     colleagues.append({
                         'member_id': m.id,
