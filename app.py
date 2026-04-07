@@ -32,6 +32,15 @@ def create_app():
     def inject_version():
         return {'app_version': APP_START_TIME}
 
+    # 静的ファイルに長期キャッシュ（バージョンクエリ付き URL を前提）
+    @app.after_request
+    def set_cache_headers(response):
+        if request.path.startswith('/static/'):
+            response.cache_control.max_age = 31536000  # 1年
+            response.cache_control.public = True
+            response.cache_control.immutable = True
+        return response
+
     # Blueprint の登録
     from routes.main import main_bp
     from routes.auth import auth_bp
@@ -105,9 +114,53 @@ def create_app():
             conn.execute(text(
                 "ALTER TABLE job_types ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES job_categories(id) ON DELETE SET NULL"
             ))
+            # 低速回線でも高速に返せるよう主要クエリにインデックスを付与
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_shift_slots_event_date     ON shift_slots (event_id, date)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_shift_assignments_slot      ON shift_assignments (slot_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_shift_assignments_member    ON shift_assignments (member_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_event_members_event         ON event_members (event_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_availabilities_member       ON availabilities (member_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_shift_absences_event        ON shift_absences (event_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_job_types_event             ON job_types (event_id)"))
             conn.commit()
 
+        # 起動時に既存JSONカラムをコンパクト化（ホワイトスペース除去）
+        _compact_existing_json(app)
+
     return app
+
+
+def _compact_existing_json(app):
+    """既存のJSON TEXTカラムから余分な空白を除去してDB容量を削減する"""
+    import json as _json
+    from models import Event, JobType, ShiftAbsence
+
+    def _rewrite(obj, attr):
+        val = getattr(obj, attr)
+        if not val:
+            return False
+        try:
+            compact = _json.dumps(_json.loads(val), ensure_ascii=False, separators=(',', ':'))
+            if compact != val:
+                setattr(obj, attr, compact)
+                return True
+        except Exception:
+            pass
+        return False
+
+    with app.app_context():
+        changed = False
+        for ev in Event.query.filter(Event.day_labels_json.isnot(None)).all():
+            changed |= _rewrite(ev, 'day_labels_json')
+        for job in JobType.query.filter(
+            (JobType.requirements_json.isnot(None)) | (JobType.allowed_departments_json.isnot(None))
+        ).all():
+            changed |= _rewrite(job, 'requirements_json')
+            changed |= _rewrite(job, 'allowed_departments_json')
+        for ab in ShiftAbsence.query.filter(ShiftAbsence.absent_times.isnot(None)).all():
+            changed |= _rewrite(ab, 'absent_times')
+        if changed:
+            db.session.commit()
 
 
 app = create_app()

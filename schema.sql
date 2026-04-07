@@ -126,3 +126,14 @@ CREATE TABLE IF NOT EXISTS availabilities (
     note         TEXT,
     submitted_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+-- =============================================================================
+-- インデックス（低速回線でも高速にレスポンスを返すためのクエリ最適化）
+-- =============================================================================
+CREATE INDEX IF NOT EXISTS idx_shift_slots_event_date   ON shift_slots      (event_id, date);
+CREATE INDEX IF NOT EXISTS idx_shift_assignments_slot   ON shift_assignments (slot_id);
+CREATE INDEX IF NOT EXISTS idx_shift_assignments_member ON shift_assignments (member_id);
+CREATE INDEX IF NOT EXISTS idx_event_members_event      ON event_members     (event_id);
+CREATE INDEX IF NOT EXISTS idx_availabilities_member    ON availabilities    (member_id);
+CREATE INDEX IF NOT EXISTS idx_shift_absences_event     ON shift_absences    (event_id);
+CREATE INDEX IF NOT EXISTS idx_job_types_event          ON job_types         (event_id);

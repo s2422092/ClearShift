@@ -4,8 +4,16 @@ from models import db, Event, EventMember, ShiftSlot, ShiftAssignment, Availabil
 from datetime import date, datetime, timedelta
 import csv
 import io
+import json as _builtin_json
 
 admin_bp = Blueprint('admin', __name__)
+
+
+def _jdump(obj):
+    """空白なしコンパクトJSON文字列を返す（DB保存用）"""
+    if obj is None:
+        return None
+    return _builtin_json.dumps(obj, ensure_ascii=False, separators=(',', ':'))
 
 
 def _user_events():
@@ -182,9 +190,8 @@ def api_update_event(event_id):
     if 'end_date' in data:
         event.end_date = date.fromisoformat(data['end_date'])
     if 'day_labels' in data:
-        import json as _json
         labels = data['day_labels']
-        event.day_labels_json = _json.dumps(labels) if labels else None
+        event.day_labels_json = _jdump(labels) if labels else None
     db.session.commit()
     return jsonify(event.to_dict())
 
@@ -461,6 +468,23 @@ def api_copy_shifts(event_id, src_id, dst_id):
 
 # ── API: Shift Slots ─────────────────────────────────────────────────────────
 
+@admin_bp.route('/api/events/<int:event_id>/shift-data', methods=['GET'])
+@login_required
+def api_shift_data(event_id):
+    """slots + members + jobs + absences を1回のリクエストで返す統合エンドポイント"""
+    _can_access_event(event_id)
+    slots   = ShiftSlot.query.filter_by(event_id=event_id).order_by(ShiftSlot.date, ShiftSlot.start_time).all()
+    members = EventMember.query.filter_by(event_id=event_id).order_by(EventMember.created_at).all()
+    jobs    = JobType.query.filter_by(event_id=event_id).order_by(JobType.created_at).all()
+    absences = ShiftAbsence.query.filter_by(event_id=event_id).all()
+    return jsonify({
+        'slots':    [s.to_dict() for s in slots],
+        'members':  [m.to_dict() for m in members],
+        'jobs':     [j.to_dict() for j in jobs],
+        'absences': [a.to_dict() for a in absences],
+    })
+
+
 @admin_bp.route('/api/events/<int:event_id>/slots', methods=['GET'])
 @login_required
 def api_slots(event_id):
@@ -562,7 +586,6 @@ def api_create_job(event_id):
 @admin_bp.route('/api/events/<int:event_id>/jobs/<int:job_id>', methods=['PATCH'])
 @login_required
 def api_update_job(event_id, job_id):
-    import json as _json
     _can_access_event(event_id)
     job = JobType.query.filter_by(id=job_id, event_id=event_id).first_or_404()
     data = request.get_json()
@@ -584,10 +607,10 @@ def api_update_job(event_id, job_id):
         job.required_count = int(data.get('required_count') or 1)
     if 'requirements' in data:
         req = data['requirements']
-        job.requirements_json = _json.dumps(req) if req else None
+        job.requirements_json = _jdump(req) if req else None
     if 'allowed_departments' in data:
         depts = data['allowed_departments']
-        job.allowed_departments_json = _json.dumps(depts) if depts else None
+        job.allowed_departments_json = _jdump(depts) if depts else None
     db.session.commit()
     return jsonify(job.to_dict())
 
@@ -658,6 +681,108 @@ def api_update_assignment(assignment_id):
         assignment.note = data['note']
     db.session.commit()
     return jsonify(assignment.to_dict())
+
+
+# ── API: Maintenance ──────────────────────────────────────────────────────────
+
+@admin_bp.route('/api/events/<int:event_id>/maintenance', methods=['POST'])
+@login_required
+def api_maintenance(event_id):
+    """
+    DBサイズ削減メンテナンス（オーナーのみ実行可）:
+      1. availabilities の重複排除（同 member+date は最新1件だけ残す）
+      2. イベント日程外の availabilities / shift_absences を削除
+      3. JSON TEXT カラムのホワイトスペースをコンパクト化
+      4. VACUUM ANALYZE で物理領域を最適化
+    """
+    from sqlalchemy import text
+    event = Event.query.filter_by(id=event_id, creator_id=current_user.id).first()
+    if not event:
+        return jsonify({'error': 'オーナーのみ実行できます。'}), 403
+
+    stats = {'dedup_avail': 0, 'out_of_range': 0, 'json_compacted': 0, 'vacuum': False}
+
+    member_ids = [m.id for m in EventMember.query.filter_by(event_id=event_id).with_entities(EventMember.id).all()]
+    if not member_ids:
+        return jsonify({'ok': True, **stats})
+
+    # 1. availabilities 重複排除
+    #    同 member_id + date で複数行ある場合、id が最大（最新）のもの以外を削除
+    avails = Availability.query.filter(
+        Availability.member_id.in_(member_ids)
+    ).order_by(Availability.member_id, Availability.date, Availability.id).all()
+
+    seen = {}  # (member_id, date) -> keep_id
+    delete_ids = []
+    for a in avails:
+        key = (a.member_id, a.date)
+        if key in seen:
+            # 古い方を削除対象に
+            delete_ids.append(seen[key])
+        seen[key] = a.id
+
+    if delete_ids:
+        deleted = Availability.query.filter(Availability.id.in_(delete_ids)).delete(synchronize_session=False)
+        stats['dedup_avail'] = deleted
+
+    # 2. イベント日程外の行を削除
+    start, end = event.start_date, event.end_date
+    out_avail = Availability.query.filter(
+        Availability.member_id.in_(member_ids),
+        (Availability.date < start) | (Availability.date > end)
+    ).delete(synchronize_session=False)
+
+    out_abs = ShiftAbsence.query.filter(
+        ShiftAbsence.event_id == event_id,
+        (ShiftAbsence.date < start) | (ShiftAbsence.date > end)
+    ).delete(synchronize_session=False)
+
+    stats['out_of_range'] = out_avail + out_abs
+
+    db.session.flush()
+
+    # 3. JSON TEXT カラムのコンパクト化（既存データ）
+    compacted = 0
+
+    def compact_col(obj, attr):
+        nonlocal compacted
+        val = getattr(obj, attr)
+        if not val:
+            return
+        try:
+            parsed = _builtin_json.loads(val)
+            compact = _jdump(parsed)
+            if compact != val:
+                setattr(obj, attr, compact)
+                compacted += 1
+        except Exception:
+            pass
+
+    compact_col(event, 'day_labels_json')
+
+    for job in JobType.query.filter_by(event_id=event_id).all():
+        compact_col(job, 'requirements_json')
+        compact_col(job, 'allowed_departments_json')
+
+    for absence in ShiftAbsence.query.filter_by(event_id=event_id).all():
+        compact_col(absence, 'absent_times')
+
+    stats['json_compacted'] = compacted
+
+    db.session.commit()
+
+    # 4. VACUUM ANALYZE（テーブル単位）
+    try:
+        tables = ['availabilities', 'shift_absences', 'shift_assignments',
+                  'shift_slots', 'event_members', 'job_types']
+        with db.engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
+            for t in tables:
+                conn.execute(text(f'VACUUM ANALYZE {t}'))
+        stats['vacuum'] = True
+    except Exception:
+        pass  # VACUUM は権限不足でも他の処理は完了済み
+
+    return jsonify({'ok': True, **stats})
 
 
 # ── API: Stats ────────────────────────────────────────────────────────────────
@@ -786,7 +911,6 @@ def api_get_absences(event_id):
 @admin_bp.route('/api/events/<int:event_id>/absences', methods=['POST'])
 @login_required
 def api_set_absence(event_id):
-    import json as _json
     _can_access_event(event_id)
     data = request.get_json()
     member_id = data.get('member_id')
@@ -804,7 +928,7 @@ def api_set_absence(event_id):
         absence = ShiftAbsence(event_id=event_id, member_id=member_id, date=absence_date)
         db.session.add(absence)
     absence.is_full_day = is_full_day
-    absence.absent_times = _json.dumps(absent_times) if absent_times else None
+    absence.absent_times = _jdump(absent_times) if absent_times else None
     db.session.commit()
     return jsonify(absence.to_dict())
 

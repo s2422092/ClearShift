@@ -17,14 +17,38 @@ const fmtDate = iso => {
 const STATUS_LABEL = { scheduled: '予定', absent: '欠席', late: '遅刻' };
 const STATUS_CLASS = { scheduled: 'badge-scheduled', absent: 'badge-absent', late: 'badge-late' };
 
+// タイムアウト付き fetch（ms 後に AbortError）
+function fetchWithTimeout(url, opts = {}, timeoutMs = 12000) {
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), timeoutMs);
+  return fetch(url, { ...opts, signal: ctrl.signal }).finally(() => clearTimeout(tid));
+}
+
+// リトライ付き API クライアント（GET は最大3回、変更系は1回）
 async function apiFetch(url, opts = {}) {
-  const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
-    ...opts,
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'エラーが発生しました');
-  return data;
+  const isReadOnly = !opts.method || opts.method === 'GET';
+  const maxAttempts = isReadOnly ? 3 : 1;
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetchWithTimeout(url, {
+        headers: { 'Content-Type': 'application/json' },
+        ...opts,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'エラーが発生しました');
+      return data;
+    } catch (err) {
+      lastErr = err;
+      if (!isReadOnly || attempt === maxAttempts) break;
+      // 指数バックオフ: 500ms → 1500ms
+      await new Promise(r => setTimeout(r, 500 * attempt));
+    }
+  }
+  // ネットワーク切断 or タイムアウト時は分かりやすいメッセージに変換
+  if (lastErr?.name === 'AbortError') throw new Error('通信がタイムアウトしました。Wi-Fi環境を確認してください。');
+  if (!navigator.onLine) throw new Error('オフラインです。接続を確認してください。');
+  throw lastErr;
 }
 
 function showToast(msg, isError = false) {
@@ -441,20 +465,23 @@ function jobColorFromSlot(slot) {
   return job ? job.color : '#4DA3FF';
 }
 
+// 欠席レコード1件をローカル構造に反映（loadAbsences / loadShifts 両方から呼ぶ）
+function import_absence_record(rec) {
+  if (rec.is_full_day) {
+    if (!absentMemberDays.has(rec.date)) absentMemberDays.set(rec.date, new Set());
+    absentMemberDays.get(rec.date).add(rec.member_id);
+  } else if (rec.absent_times && rec.absent_times.length > 0) {
+    if (!absentRangeCells.has(rec.date)) absentRangeCells.set(rec.date, new Map());
+    absentRangeCells.get(rec.date).set(rec.member_id, new Set(rec.absent_times));
+  }
+}
+
 async function loadAbsences() {
   try {
     const data = await apiFetch(`/api/events/${EVENT_ID}/absences`);
     absentMemberDays.clear();
     absentRangeCells.clear();
-    data.forEach(rec => {
-      if (rec.is_full_day) {
-        if (!absentMemberDays.has(rec.date)) absentMemberDays.set(rec.date, new Set());
-        absentMemberDays.get(rec.date).add(rec.member_id);
-      } else if (rec.absent_times && rec.absent_times.length > 0) {
-        if (!absentRangeCells.has(rec.date)) absentRangeCells.set(rec.date, new Map());
-        absentRangeCells.get(rec.date).set(rec.member_id, new Set(rec.absent_times));
-      }
-    });
+    data.forEach(import_absence_record);
   } catch (e) {
     console.error('欠席データ読み込み失敗', e);
   }
@@ -483,17 +510,35 @@ async function saveAbsence(day, memberId) {
   }
 }
 
+function showBoardSkeleton() {
+  $('shift-board').innerHTML = `
+    <div class="p-6 animate-pulse space-y-3">
+      <div class="h-8 bg-gray-100 rounded-lg w-full"></div>
+      ${Array.from({length: 6}, () =>
+        `<div class="flex gap-2">
+          <div class="h-7 bg-gray-100 rounded w-24 flex-shrink-0"></div>
+          <div class="h-7 bg-gray-50 rounded flex-1"></div>
+        </div>`
+      ).join('')}
+    </div>`;
+}
+
 async function loadShifts() {
+  showBoardSkeleton();
   try {
-    const [shiftData] = await Promise.all([
-      Promise.all([
-        apiFetch(`/api/events/${EVENT_ID}/slots`),
-        apiFetch(`/api/events/${EVENT_ID}/members`),
-        apiFetch(`/api/events/${EVENT_ID}/jobs`),
-      ]),
-      loadAbsences(),
-    ]);
-    [slots, members, jobs] = shiftData;
+    // 1リクエストで全データ取得（slots + members + jobs + absences）
+    const data = await apiFetch(`/api/events/${EVENT_ID}/shift-data`);
+    slots   = data.slots;
+    members = data.members;
+    jobs    = data.jobs;
+
+    // absences をローカル構造に展開
+    absentMemberDays.clear();
+    absentRangeCells.clear();
+    data.absences.forEach(rec => {
+      import_absence_record(rec);
+    });
+
     eventDates = generateEventDates(EVENT_START, EVENT_END);
     if (!currentDay || !eventDates.includes(currentDay)) currentDay = eventDates[0] || null;
     renderDayTabs();
