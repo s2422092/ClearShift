@@ -9,6 +9,9 @@ psycopg2-binary==2.9.9
 python-dotenv==1.0.1
 gunicorn==21.2.0
 
+# ── Supabase ──────────────────────────────────────────────────────────────────
+supabase==2.4.0          # Supabase Python クライアント（Storage / Auth / Realtime 等）
+
 # ── 間接依存（Flask / SQLAlchemy が内部で使用） ───────────────────────────────
 blinker==1.9.0
 brotli==1.2.0

@@ -1,7 +1,11 @@
 import os
 from dotenv import load_dotenv
+from sqlalchemy.pool import NullPool, QueuePool
 
 load_dotenv()
+
+# Vercel 上では環境変数 VERCEL=1 が自動的にセットされる
+_SERVERLESS = bool(os.environ.get('VERCEL'))
 
 
 def _build_database_url():
@@ -22,16 +26,26 @@ def _build_database_url():
     if not all([host, dbname, user]):
         return 'postgresql://localhost/clearshift'  # フォールバック
 
+    port = os.environ.get('DB_PORT', '5432')
     if password:
-        return f'postgresql://{user}:{password}@{host}/{dbname}'
-    return f'postgresql://{user}@{host}/{dbname}'
+        return f'postgresql://{user}:{password}@{host}:{port}/{dbname}'
+    return f'postgresql://{user}@{host}:{port}/{dbname}'
 
 
-class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
-    SQLALCHEMY_DATABASE_URI = _build_database_url()
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_ENGINE_OPTIONS = {
+def _engine_options():
+    """Vercel（サーバーレス）と通常サーバーでプール設定を切り替える。
+    サーバーレスでは NullPool 必須: 関数終了後もコネクションを保持する
+    永続プールはコネクション枯渇を引き起こす。"""
+    if _SERVERLESS:
+        return {
+            'poolclass': NullPool,
+            'connect_args': {
+                'sslmode': 'require',   # Supabase は SSL 必須
+                'connect_timeout': 10,
+            },
+        }
+    return {
+        'poolclass': QueuePool,
         'pool_size': 10,
         'max_overflow': 20,
         'pool_timeout': 20,
@@ -39,8 +53,15 @@ class Config:
         'pool_pre_ping': True,
         'connect_args': {
             'connect_timeout': 10,
-        }
+        },
     }
+
+
+class Config:
+    SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
+    SQLALCHEMY_DATABASE_URI = _build_database_url()
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SQLALCHEMY_ENGINE_OPTIONS = _engine_options()
     COMPRESS_MIMETYPES = [
         'text/html', 'text/css', 'text/javascript',
         'application/json', 'application/xml'
