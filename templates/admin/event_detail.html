@@ -951,6 +951,7 @@ const EVENT_ID = {{ event.id }};
 const EVENT_START = '{{ event.start_date.isoformat() }}';
 const EVENT_END = '{{ event.end_date.isoformat() }}';
 var DAY_LABELS = JSON.parse(document.getElementById('day-labels-data').textContent || '{}');
+const API_ROOT = '{{ request.script_root }}';
 </script>
 
 <script>

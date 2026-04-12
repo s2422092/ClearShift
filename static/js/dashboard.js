@@ -18,6 +18,10 @@ const STATUS_LABEL = { scheduled: '予定', absent: '欠席', late: '遅刻' };
 const STATUS_CLASS = { scheduled: 'badge-scheduled', absent: 'badge-absent', late: 'badge-late' };
 
 // タイムアウト付き fetch（ms 後に AbortError）
+// API_ROOT はテンプレートから注入（サブパスデプロイ対応）
+// ローカル開発時は空文字列になる
+const _API_ROOT = window.API_ROOT || '';
+
 function fetchWithTimeout(url, opts = {}, timeoutMs = 12000) {
   const ctrl = new AbortController();
   const tid = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -26,6 +30,7 @@ function fetchWithTimeout(url, opts = {}, timeoutMs = 12000) {
 
 // リトライ付き API クライアント（GET は最大3回、変更系は1回）
 async function apiFetch(url, opts = {}) {
+  url = _API_ROOT + url;
   const isReadOnly = !opts.method || opts.method === 'GET';
   const maxAttempts = isReadOnly ? 3 : 1;
   let lastErr;
@@ -493,13 +498,13 @@ async function saveAbsence(day, memberId) {
   const rangeTimes = isFullDay ? [] : [...(rmap?.get(memberId) || [])];
   try {
     if (!isFullDay && rangeTimes.length === 0) {
-      await fetch(`/api/events/${EVENT_ID}/absences`, {
+      await fetch(_API_ROOT + `/api/events/${EVENT_ID}/absences`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ member_id: memberId, date: day }),
       });
     } else {
-      await fetch(`/api/events/${EVENT_ID}/absences`, {
+      await fetch(_API_ROOT + `/api/events/${EVENT_ID}/absences`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ member_id: memberId, date: day, is_full_day: isFullDay, absent_times: rangeTimes }),
@@ -2230,7 +2235,7 @@ $('form-csv').addEventListener('submit', async e => {
   formData.append('file', file);
 
   try {
-    const res = await fetch(`/api/events/${EVENT_ID}/members/csv`, {
+    const res = await fetch(_API_ROOT + `/api/events/${EVENT_ID}/members/csv`, {
       method: 'POST',
       body: formData,
     });
@@ -2667,7 +2672,7 @@ function renderNotifList(items) {
       btn.disabled = true;
       btn.textContent = '処理中...';
       try {
-        await fetch(`/api/events/${EVENT_ID}/notifications/${aid}/resolve`, { method: 'POST' });
+        await fetch(_API_ROOT + `/api/events/${EVENT_ID}/notifications/${aid}/resolve`, { method: 'POST' });
         await loadNotifications();
       } catch {
         btn.disabled = false;

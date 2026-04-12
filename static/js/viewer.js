@@ -16,8 +16,11 @@ const STATUS_COLOR = {
   late:      'bg-amber-50 text-amber-600',
 };
 
+// API_ROOT はテンプレートから注入（サブパスデプロイ対応）
+const _API_ROOT = window.API_ROOT || '';
+
 async function apiFetch(url) {
-  const res = await fetch(url);
+  const res = await fetch(_API_ROOT + url);
   if (!res.ok) throw new Error('データの取得に失敗しました');
   return res.json();
 }
