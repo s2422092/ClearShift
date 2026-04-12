@@ -27,10 +27,13 @@ def create_app():
     def load_user(user_id):
         return db.session.get(User, int(user_id))
 
-    # キャッシュバスティング用バージョンをテンプレートに注入
+    # キャッシュバスティング用バージョン + サブパス対応ルートをテンプレートに注入
     @app.context_processor
-    def inject_version():
-        return {'app_version': APP_START_TIME}
+    def inject_globals():
+        return {
+            'app_version': APP_START_TIME,
+            'app_root': request.script_root,  # サブパスデプロイ時のプレフィックス（通常は空文字）
+        }
 
     # 静的ファイルに長期キャッシュ（バージョンクエリ付き URL を前提）
     @app.after_request

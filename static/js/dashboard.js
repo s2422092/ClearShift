@@ -104,7 +104,7 @@ $('form-new-event').addEventListener('submit', async e => {
         end_date: $('new-event-end').value,
       }),
     });
-    window.location.href = `/events/${data.id}`;
+    window.location.href = _API_ROOT + `/events/${data.id}`;
   } catch (err) {
     errEl.textContent = err.message;
     errEl.classList.remove('hidden');
@@ -2111,7 +2111,7 @@ $('btn-delete-event').addEventListener('click', async () => {
   if (!confirm('イベントを削除しますか？この操作は取り消せません。')) return;
   try {
     await apiFetch(`/api/events/${EVENT_ID}`, { method: 'DELETE' });
-    window.location.href = '/dashboard';
+    window.location.href = _API_ROOT + '/dashboard';
   } catch (err) { showToast(err.message, true); }
 });
 

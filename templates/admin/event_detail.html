@@ -352,7 +352,7 @@
                 </svg>
                 CSV読み込み
               </button>
-              <a href="/api/members/csv-template" download
+              <a href="{{ url_for('admin.api_csv_template') }}" download
                 class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
@@ -714,7 +714,7 @@
         </table>
       </div>
       <p class="text-xs text-gray-400 mt-2">・列の順番は自動で認識します（どの順でもOK）<br/>・学年は「2」でも「2年」でも可<br/>・UTF-8 / Shift_JIS どちらも対応</p>
-      <a href="/api/members/csv-template" download
+      <a href="{{ url_for('admin.api_csv_template') }}" download
         class="inline-flex items-center gap-1.5 mt-3 text-xs text-primary hover:underline">
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
@@ -951,7 +951,8 @@ const EVENT_ID = {{ event.id }};
 const EVENT_START = '{{ event.start_date.isoformat() }}';
 const EVENT_END = '{{ event.end_date.isoformat() }}';
 var DAY_LABELS = JSON.parse(document.getElementById('day-labels-data').textContent || '{}');
-const API_ROOT = '{{ request.script_root }}';
+const API_ROOT = '{{ app_root }}';
+window.API_ROOT = API_ROOT;
 </script>
 
 <script>

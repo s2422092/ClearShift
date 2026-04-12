@@ -146,6 +146,7 @@
 
 {% block scripts %}
 <script>
+const APP_ROOT = '{{ app_root }}';
 const modal = document.getElementById('modal-new-event');
 const openModal = () => modal.classList.remove('hidden');
 const closeModal = () => modal.classList.add('hidden');
@@ -168,7 +169,7 @@ document.getElementById('form-new-event').addEventListener('submit', async (e) =
     description: document.getElementById('new-event-desc').value.trim(),
   };
 
-  const res = await fetch('/api/events', {
+  const res = await fetch(APP_ROOT + '/api/events', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body),
@@ -179,7 +180,7 @@ document.getElementById('form-new-event').addEventListener('submit', async (e) =
     errorEl.classList.remove('hidden');
     return;
   }
-  window.location.href = `/events/${data.id}`;
+  window.location.href = APP_ROOT + `/events/${data.id}`;
 });
 </script>
 {% endblock %}

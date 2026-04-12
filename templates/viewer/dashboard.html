@@ -178,7 +178,8 @@ const MY_MEMBER_ID = {{ member.id }};
 const EVENT_START  = "{{ event.start_date.isoformat() }}";
 const EVENT_END    = "{{ event.end_date.isoformat() }}";
 var DAY_LABELS = JSON.parse(document.getElementById('viewer-day-labels-data').textContent || '{}');
-const API_ROOT = '{{ request.script_root }}';
+const API_ROOT = '{{ app_root }}';
+window.API_ROOT = API_ROOT;
 </script>
 {% endblock %}
 
