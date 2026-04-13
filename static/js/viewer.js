@@ -78,6 +78,7 @@ let allMembers = [];
 let viewerCurrentDay = null;
 let viewerIntervalMin = 30;
 let viewerEventDates = [];
+let viewerWorkloadScope = 'day';
 
 // ─── Tab switching ─────────────────────────────────────────────────────────────
 document.querySelectorAll('.vtab-btn').forEach(btn => {
@@ -741,7 +742,6 @@ $('btn-submit-avail').addEventListener('click', async () => {
 });
 
 // ─── Viewer Workload Panel ────────────────────────────────────────────────────
-let viewerWorkloadScope = 'day';
 
 function fmtMin(min) {
   const h = Math.floor(min / 60);
