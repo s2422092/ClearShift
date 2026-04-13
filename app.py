@@ -87,50 +87,12 @@ def create_app():
     def shutdown_session(exception=None):
         db.session.remove()
 
-    # テーブルの自動作成 + カラム追加マイグレーション
+    # Vercel サーバーレス環境では複数インスタンスが同時起動するため
+    # ALTER TABLE / CREATE INDEX を起動時に実行するとデッドロックが発生する。
+    # スキーマは schema.sql で事前に適用済みのため、ここでは db.create_all() のみ実行する。
+    # ローカル開発環境（VERCEL 未設定）でも同様に schema.sql を使うこと。
     with app.app_context():
         db.create_all()
-        from sqlalchemy import text
-        with db.engine.connect() as conn:
-            conn.execute(text(
-                "ALTER TABLE job_types ADD COLUMN IF NOT EXISTS color VARCHAR(7) NOT NULL DEFAULT '#4DA3FF'"
-            ))
-            conn.execute(text(
-                "ALTER TABLE shift_slots ADD COLUMN IF NOT EXISTS job_type_id INTEGER REFERENCES job_types(id) ON DELETE SET NULL"
-            ))
-            conn.execute(text(
-                "ALTER TABLE event_members ADD COLUMN IF NOT EXISTS is_leader BOOLEAN NOT NULL DEFAULT FALSE"
-            ))
-            conn.execute(text(
-                "ALTER TABLE shift_assignments ADD COLUMN IF NOT EXISTS reported_at TIMESTAMP"
-            ))
-            conn.execute(text(
-                "ALTER TABLE shift_assignments ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP"
-            ))
-            conn.execute(text(
-                "ALTER TABLE job_types ADD COLUMN IF NOT EXISTS requirements_json TEXT"
-            ))
-            conn.execute(text(
-                "ALTER TABLE job_types ADD COLUMN IF NOT EXISTS allowed_departments_json TEXT"
-            ))
-            conn.execute(text(
-                "ALTER TABLE events ADD COLUMN IF NOT EXISTS day_labels_json TEXT"
-            ))
-            conn.execute(text(
-                "ALTER TABLE job_types ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES job_categories(id) ON DELETE SET NULL"
-            ))
-            # 低速回線でも高速に返せるよう主要クエリにインデックスを付与
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_shift_slots_event_date     ON shift_slots (event_id, date)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_shift_assignments_slot      ON shift_assignments (slot_id)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_shift_assignments_member    ON shift_assignments (member_id)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_event_members_event         ON event_members (event_id)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_availabilities_member       ON availabilities (member_id)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_shift_absences_event        ON shift_absences (event_id)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_job_types_event             ON job_types (event_id)"))
-            conn.commit()
-
-        # 起動時に既存JSONカラムをコンパクト化（ホワイトスペース除去）
-        _compact_existing_json(app)
 
     return app
 
