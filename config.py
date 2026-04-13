@@ -62,6 +62,16 @@ class Config:
     SQLALCHEMY_DATABASE_URI = _build_database_url()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = _engine_options()
+    # ── Flask-Caching ─────────────────────────────────────────────────────────
+    # REDIS_URL が設定されていれば Redis、なければプロセス内メモリキャッシュ
+    _redis_url = os.environ.get('REDIS_URL', '')
+    if _redis_url:
+        CACHE_TYPE = 'RedisCache'
+        CACHE_REDIS_URL = _redis_url
+    else:
+        CACHE_TYPE = 'SimpleCache'   # ローカル開発用フォールバック
+    CACHE_DEFAULT_TIMEOUT = 60       # デフォルト60秒
+
     COMPRESS_MIMETYPES = [
         'text/html', 'text/css', 'text/javascript',
         'application/json', 'application/xml'

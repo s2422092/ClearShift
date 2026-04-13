@@ -3,8 +3,11 @@ import time
 from flask import Flask, jsonify, request
 from flask_login import LoginManager
 from flask_compress import Compress
+from flask_caching import Cache
 from config import Config
 from models import db, User
+
+cache = Cache()
 
 APP_START_TIME = str(int(time.time()))
 
@@ -16,6 +19,7 @@ def create_app():
     # 拡張機能の初期化
     db.init_app(app)
     Compress(app)
+    cache.init_app(app)
 
     login_manager = LoginManager()
     login_manager.init_app(app)

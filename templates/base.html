@@ -46,5 +46,15 @@
   {% block content %}{% endblock %}
 
   {% block scripts %}{% endblock %}
+
+  <!-- Service Worker 登録 -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('{{ url_for("static", filename="sw.js") }}')
+          .catch(() => {}); // 登録失敗してもアプリは動作する
+      });
+    }
+  </script>
 </body>
 </html>

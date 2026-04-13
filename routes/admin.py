@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta, time as time_type
 import csv
 import io
 import json as _builtin_json
+from app import cache
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -25,6 +26,11 @@ def _user_events():
     return Event.query.filter(
         (Event.creator_id == current_user.id) | Event.id.in_(collab_subq)
     ).order_by(Event.created_at.desc()).all()
+
+
+def _invalidate_event_cache(event_id):
+    """シフトデータが変更されたときに該当イベントのキャッシュを削除する"""
+    cache.delete(f'shift_data_{event_id}')
 
 
 def _can_access_event(event_id):
@@ -472,18 +478,25 @@ def api_copy_shifts(event_id, src_id, dst_id):
 @admin_bp.route('/api/events/<int:event_id>/shift-data', methods=['GET'])
 @login_required
 def api_shift_data(event_id):
-    """slots + members + jobs + absences を1回のリクエストで返す統合エンドポイント"""
+    """slots + members + jobs + absences を1回のリクエストで返す統合エンドポイント（60秒キャッシュ）"""
     _can_access_event(event_id)
-    slots   = ShiftSlot.query.filter_by(event_id=event_id).order_by(ShiftSlot.date, ShiftSlot.start_time).all()
-    members = EventMember.query.filter_by(event_id=event_id).order_by(EventMember.created_at).all()
-    jobs    = JobType.query.filter_by(event_id=event_id).order_by(JobType.created_at).all()
+    cache_key = f'shift_data_{event_id}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
+
+    slots    = ShiftSlot.query.filter_by(event_id=event_id).order_by(ShiftSlot.date, ShiftSlot.start_time).all()
+    members  = EventMember.query.filter_by(event_id=event_id).order_by(EventMember.created_at).all()
+    jobs     = JobType.query.filter_by(event_id=event_id).order_by(JobType.created_at).all()
     absences = ShiftAbsence.query.filter_by(event_id=event_id).all()
-    return jsonify({
+    data = {
         'slots':    [s.to_dict() for s in slots],
         'members':  [m.to_dict() for m in members],
         'jobs':     [j.to_dict() for j in jobs],
         'absences': [a.to_dict() for a in absences],
-    })
+    }
+    cache.set(cache_key, data, timeout=60)
+    return jsonify(data)
 
 
 @admin_bp.route('/api/events/<int:event_id>/slots', methods=['GET'])
@@ -524,6 +537,7 @@ def api_create_slot(event_id):
     )
     db.session.add(slot)
     db.session.commit()
+    _invalidate_event_cache(event_id)
     return jsonify(slot.to_dict()), 201
 
 
@@ -534,6 +548,7 @@ def api_delete_slot(event_id, slot_id):
     slot = ShiftSlot.query.filter_by(id=slot_id, event_id=event_id).first_or_404()
     db.session.delete(slot)
     db.session.commit()
+    _invalidate_event_cache(event_id)
     return jsonify({'ok': True})
 
 
@@ -613,6 +628,7 @@ def api_update_job(event_id, job_id):
         depts = data['allowed_departments']
         job.allowed_departments_json = _jdump(depts) if depts else None
     db.session.commit()
+    _invalidate_event_cache(event_id)
     return jsonify(job.to_dict())
 
 
@@ -623,6 +639,7 @@ def api_delete_job(event_id, job_id):
     job = JobType.query.filter_by(id=job_id, event_id=event_id).first_or_404()
     db.session.delete(job)
     db.session.commit()
+    _invalidate_event_cache(event_id)
     return jsonify({'ok': True})
 
 
@@ -656,6 +673,7 @@ def api_assign(event_id, slot_id):
     assignment = ShiftAssignment(slot_id=slot_id, member_id=member_id)
     db.session.add(assignment)
     db.session.commit()
+    _invalidate_event_cache(event_id)
     return jsonify(assignment.to_dict()), 201
 
 
@@ -669,6 +687,7 @@ def api_delete_assignment(assignment_id):
     _can_access_event(slot.event_id)
     db.session.delete(assignment)
     db.session.commit()
+    _invalidate_event_cache(slot.event_id)
     return jsonify({'ok': True})
 
 
@@ -686,6 +705,7 @@ def api_update_assignment(assignment_id):
     if 'note' in data:
         assignment.note = data['note']
     db.session.commit()
+    _invalidate_event_cache(slot.event_id)
     return jsonify(assignment.to_dict())
 
 
