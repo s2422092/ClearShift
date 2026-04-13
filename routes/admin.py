@@ -524,6 +524,18 @@ def api_create_slot(event_id):
         return jsonify({'error': '日付・時間の形式が正しくありません。'}), 400
 
     job_type_id = data.get('job_type_id')
+
+    # 同一イベント・日付・開始時刻・終了時刻・仕事の重複スロット作成を防ぐ
+    duplicate = ShiftSlot.query.filter_by(
+        event_id=event_id,
+        date=slot_date,
+        start_time=start_time,
+        end_time=end_time,
+        job_type_id=int(job_type_id) if job_type_id else None,
+    ).first()
+    if duplicate:
+        return jsonify(duplicate.to_dict()), 200  # 既存スロットをそのまま返す
+
     slot = ShiftSlot(
         event_id=event_id,
         job_type_id=int(job_type_id) if job_type_id else None,
@@ -665,10 +677,10 @@ def api_assign(event_id, slot_id):
             if allowed and member.department not in allowed:
                 return jsonify({'error': f'この仕事（{job.title}）は {", ".join(allowed)} のメンバーのみ担当できます。'}), 400
 
-    # 重複チェック
+    # 重複チェック（冪等: 既に割り当て済みなら既存データをそのまま返す）
     existing = ShiftAssignment.query.filter_by(slot_id=slot_id, member_id=member_id).first()
     if existing:
-        return jsonify({'error': 'このメンバーは既に割り当て済みです。'}), 400
+        return jsonify(existing.to_dict()), 200
 
     assignment = ShiftAssignment(slot_id=slot_id, member_id=member_id)
     db.session.add(assignment)

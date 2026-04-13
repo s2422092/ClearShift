@@ -112,11 +112,13 @@ function showToast(msg, isError = false) {
  * ボタンを無効化しスピナーを表示しながら非同期処理を実行する。
  * 処理完了後にボタンを元の状態に戻す（二重送信防止）。
  */
+// 処理中フラグをボタンの data 属性で管理（disabled の上書き競合を防ぐ）
 async function withLoading(btn, fn) {
-  if (btn.disabled) return;          // 既に処理中なら無視
+  if (btn.dataset.loading === '1') return;  // 既に処理中なら完全無視
   const originalHTML = btn.innerHTML;
-  const originalDisabled = btn.disabled;
+  btn.dataset.loading = '1';
   btn.disabled = true;
+  btn.setAttribute('aria-busy', 'true');
   btn.innerHTML = `
     <svg class="animate-spin w-4 h-4 inline-block mr-1.5 -mt-0.5" fill="none" viewBox="0 0 24 24">
       <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
@@ -126,9 +128,14 @@ async function withLoading(btn, fn) {
     await fn();
   } finally {
     btn.innerHTML = originalHTML;
-    btn.disabled = originalDisabled;
+    btn.disabled = false;
+    btn.removeAttribute('aria-busy');
+    delete btn.dataset.loading;
   }
 }
+
+// シフト登録専用の排他フラグ（withLoading より上位でブロック）
+let _shiftSubmitting = false;
 
 // ─── Tab switching ────────────────────────────────────────────────────────────
 document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -1604,6 +1611,7 @@ $('btn-bulk-delete-exec').addEventListener('click', async () => {
 });
 
 $('btn-board-slot-submit').addEventListener('click', async function() {
+  if (_shiftSubmitting) return;          // 排他フラグで二重送信を完全ブロック
   const errEl = $('board-slot-error');
   errEl.classList.add('hidden');
 
@@ -1615,6 +1623,7 @@ $('btn-board-slot-submit').addEventListener('click', async function() {
     return;
   }
 
+  _shiftSubmitting = true;
   await withLoading(this, async () => {
     // ── 編集モード：既存スロットの仕事を差し替え ────────────────────
     if (editingSlot) {
@@ -1676,6 +1685,7 @@ $('btn-board-slot-submit').addEventListener('click', async function() {
       errEl.classList.remove('hidden');
     }
   });
+  _shiftSubmitting = false;   // 成功・失敗どちらでも解除
 });
 
 document.querySelectorAll('.interval-btn').forEach(btn => {
