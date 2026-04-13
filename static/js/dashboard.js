@@ -108,6 +108,40 @@ function showToast(msg, isError = false) {
   });
 }
 
+// ─── グローバルローディングオーバーレイ ──────────────────────────────────────
+let _overlayEl = null;
+let _overlayCount = 0;
+
+function showOverlay(msg = '登録中…') {
+  _overlayCount++;
+  if (_overlayEl) {
+    _overlayEl.querySelector('.overlay-msg').textContent = msg;
+    return;
+  }
+  _overlayEl = document.createElement('div');
+  _overlayEl.className = 'fixed inset-0 z-[200] flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm';
+  _overlayEl.innerHTML = `
+    <div class="bg-white rounded-2xl shadow-2xl px-10 py-8 flex flex-col items-center gap-4 min-w-[180px]">
+      <div class="relative w-14 h-14">
+        <svg class="w-14 h-14 animate-spin text-primary" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"/>
+          <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+        </svg>
+        <div class="absolute inset-0 flex items-center justify-center">
+          <div class="w-5 h-5 bg-primary rounded-full opacity-30 animate-ping"></div>
+        </div>
+      </div>
+      <span class="overlay-msg text-sm font-semibold text-gray-700 tracking-wide">${msg}</span>
+    </div>`;
+  document.body.appendChild(_overlayEl);
+}
+
+function hideOverlay() {
+  _overlayCount = Math.max(0, _overlayCount - 1);
+  if (_overlayCount > 0) return;
+  if (_overlayEl) { _overlayEl.remove(); _overlayEl = null; }
+}
+
 /**
  * ボタンを無効化しスピナーを表示しながら非同期処理を実行する。
  * 処理完了後にボタンを元の状態に戻す（二重送信防止）。
@@ -1625,8 +1659,10 @@ $('btn-board-slot-submit').addEventListener('click', async function() {
 
   _shiftSubmitting = true;
   await withLoading(this, async () => {
+
     // ── 編集モード：既存スロットの仕事を差し替え ────────────────────
     if (editingSlot) {
+      showOverlay('変更中…');
       try {
         const { slotId, assignmentId, memberId } = editingSlot;
         await apiFetch(`/api/assignments/${assignmentId}`, { method: 'DELETE' });
@@ -1635,23 +1671,28 @@ $('btn-board-slot-submit').addEventListener('click', async function() {
         const newSlot = await apiFetch(`/api/events/${EVENT_ID}/slots`, {
           method: 'POST',
           body: JSON.stringify({
-            date: oldSlot.date,
-            start_time: oldSlot.start_time,
-            end_time: oldSlot.end_time,
-            role: job.title,
-            location: job.location || '',
-            required_count: job.required_count,
+            date: oldSlot.date, start_time: oldSlot.start_time,
+            end_time: oldSlot.end_time, role: job.title,
+            location: job.location || '', required_count: job.required_count,
             job_type_id: job.id,
           }),
         });
-        await apiFetch(`/api/events/${EVENT_ID}/slots/${newSlot.id}/assign`, {
+        const assignment = await apiFetch(`/api/events/${EVENT_ID}/slots/${newSlot.id}/assign`, {
           method: 'POST',
           body: JSON.stringify({ member_id: memberId }),
         });
+        // 楽観的UI更新：ローカルの slots を直接書き換えてすぐ再描画
+        newSlot.assignments = [assignment];
+        slots = slots.filter(s => s.id !== slotId);
+        slots.push(newSlot);
         closeBoardSlotModal();
-        await loadShifts();
+        hideOverlay();
+        renderShiftBoard();
         showToast('シフトを変更しました');
+        // バックグラウンドでキャッシュ無効化のみ（画面はすでに更新済み）
+        apiFetch(`/api/events/${EVENT_ID}/shift-data`).catch(() => {});
       } catch (err) {
+        hideOverlay();
         errEl.textContent = err.message;
         errEl.classList.remove('hidden');
       }
@@ -1660,6 +1701,7 @@ $('btn-board-slot-submit').addEventListener('click', async function() {
 
     // ── 新規登録モード ──────────────────────────────────────────────
     if (!pendingBoardSlot) return;
+    showOverlay('登録中…');
     try {
       const slot = await apiFetch(`/api/events/${EVENT_ID}/slots`, {
         method: 'POST',
@@ -1673,19 +1715,26 @@ $('btn-board-slot-submit').addEventListener('click', async function() {
           job_type_id: job.id,
         }),
       });
-      await apiFetch(`/api/events/${EVENT_ID}/slots/${slot.id}/assign`, {
+      const assignment = await apiFetch(`/api/events/${EVENT_ID}/slots/${slot.id}/assign`, {
         method: 'POST',
         body: JSON.stringify({ member_id: pendingBoardSlot.memberId }),
       });
+      // 楽観的UI更新：ローカルの slots に追加してすぐ再描画
+      slot.assignments = [assignment];
+      slots.push(slot);
       closeBoardSlotModal();
-      await loadShifts();
+      hideOverlay();
+      renderShiftBoard();
       showToast('シフトを登録しました');
+      // バックグラウンドでキャッシュ無効化のみ
+      apiFetch(`/api/events/${EVENT_ID}/shift-data`).catch(() => {});
     } catch (err) {
+      hideOverlay();
       errEl.textContent = err.message;
       errEl.classList.remove('hidden');
     }
   });
-  _shiftSubmitting = false;   // 成功・失敗どちらでも解除
+  _shiftSubmitting = false;
 });
 
 document.querySelectorAll('.interval-btn').forEach(btn => {
