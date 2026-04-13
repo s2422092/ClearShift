@@ -57,11 +57,77 @@ async function apiFetch(url, opts = {}) {
 }
 
 function showToast(msg, isError = false) {
+  // 既存トーストを上にずらす
+  document.querySelectorAll('.cs-toast').forEach((t, i) => {
+    t.style.top = `${(i + 1) * 60 + 16}px`;
+  });
+
   const el = document.createElement('div');
-  el.className = `fixed top-4 right-4 z-[100] px-4 py-3 rounded-lg shadow-lg text-sm font-medium text-white flash-msg ${isError ? 'bg-red-500' : 'bg-green-500'}`;
-  el.textContent = msg;
+  el.className = 'cs-toast fixed right-4 z-[100] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-sm font-medium text-white transition-all duration-300 translate-x-full opacity-0';
+  el.style.top = '16px';
+  el.style.minWidth = '220px';
+  el.style.maxWidth = '320px';
+
+  const icon = isError
+    ? `<svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>`
+    : `<svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>`;
+
+  el.innerHTML = `
+    <div class="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${isError ? 'bg-white/20' : 'bg-white/20'}">${icon}</div>
+    <span class="flex-1 leading-snug">${msg}</span>
+    <div class="w-1 self-stretch rounded-full bg-white/30 flex-shrink-0 overflow-hidden">
+      <div class="progress-bar w-full bg-white/60 transition-none" style="height:100%"></div>
+    </div>`;
+  el.style.background = isError
+    ? 'linear-gradient(135deg,#ef4444,#dc2626)'
+    : 'linear-gradient(135deg,#22c55e,#16a34a)';
+
   document.body.appendChild(el);
-  setTimeout(() => el.remove(), 3000);
+
+  // スライドイン
+  requestAnimationFrame(() => {
+    el.classList.remove('translate-x-full', 'opacity-0');
+    el.classList.add('translate-x-0', 'opacity-100');
+  });
+
+  // プログレスバーで残り時間を表示
+  const bar = el.querySelector('.progress-bar');
+  bar.style.transition = 'height 3s linear';
+  requestAnimationFrame(() => { bar.style.height = '0%'; });
+
+  const timer = setTimeout(() => {
+    el.classList.add('translate-x-full', 'opacity-0');
+    setTimeout(() => el.remove(), 300);
+  }, 3000);
+
+  // クリックで即閉じ
+  el.addEventListener('click', () => {
+    clearTimeout(timer);
+    el.classList.add('translate-x-full', 'opacity-0');
+    setTimeout(() => el.remove(), 300);
+  });
+}
+
+/**
+ * ボタンを無効化しスピナーを表示しながら非同期処理を実行する。
+ * 処理完了後にボタンを元の状態に戻す（二重送信防止）。
+ */
+async function withLoading(btn, fn) {
+  if (btn.disabled) return;          // 既に処理中なら無視
+  const originalHTML = btn.innerHTML;
+  const originalDisabled = btn.disabled;
+  btn.disabled = true;
+  btn.innerHTML = `
+    <svg class="animate-spin w-4 h-4 inline-block mr-1.5 -mt-0.5" fill="none" viewBox="0 0 24 24">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+    </svg>処理中…`;
+  try {
+    await fn();
+  } finally {
+    btn.innerHTML = originalHTML;
+    btn.disabled = originalDisabled;
+  }
 }
 
 // ─── Tab switching ────────────────────────────────────────────────────────────
@@ -387,25 +453,28 @@ document.querySelectorAll('.member-modal-close').forEach(b =>
 $('form-add-member').addEventListener('submit', async e => {
   e.preventDefault();
   const errEl = $('member-error');
+  const submitBtn = e.submitter || e.target.querySelector('[type=submit]');
   errEl.classList.add('hidden');
-  try {
-    await apiFetch(`/api/events/${EVENT_ID}/members`, {
-      method: 'POST',
-      body: JSON.stringify({
-        name: $('member-name').value.trim(),
-        email: $('member-email').value.trim(),
-        grade: $('member-grade').value.trim(),
-        department: $('member-dept').value.trim(),
-      }),
-    });
-    modalMember.classList.add('hidden');
-    $('form-add-member').reset();
-    loadMembers();
-    showToast('メンバーを追加しました');
-  } catch (err) {
-    errEl.textContent = err.message;
-    errEl.classList.remove('hidden');
-  }
+  await withLoading(submitBtn, async () => {
+    try {
+      await apiFetch(`/api/events/${EVENT_ID}/members`, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: $('member-name').value.trim(),
+          email: $('member-email').value.trim(),
+          grade: $('member-grade').value.trim(),
+          department: $('member-dept').value.trim(),
+        }),
+      });
+      modalMember.classList.add('hidden');
+      $('form-add-member').reset();
+      loadMembers();
+      showToast('メンバーを追加しました');
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.classList.remove('hidden');
+    }
+  });
 });
 
 // ─── Shift Board ─────────────────────────────────────────────────────────────
@@ -1534,7 +1603,7 @@ $('btn-bulk-delete-exec').addEventListener('click', async () => {
   } catch (err) { showToast(err.message, true); }
 });
 
-$('btn-board-slot-submit').addEventListener('click', async () => {
+$('btn-board-slot-submit').addEventListener('click', async function() {
   const errEl = $('board-slot-error');
   errEl.classList.add('hidden');
 
@@ -1546,69 +1615,67 @@ $('btn-board-slot-submit').addEventListener('click', async () => {
     return;
   }
 
-  // ── 編集モード：既存スロットの仕事を差し替え ──────────────────────
-  if (editingSlot) {
+  await withLoading(this, async () => {
+    // ── 編集モード：既存スロットの仕事を差し替え ────────────────────
+    if (editingSlot) {
+      try {
+        const { slotId, assignmentId, memberId } = editingSlot;
+        await apiFetch(`/api/assignments/${assignmentId}`, { method: 'DELETE' });
+        await apiFetch(`/api/events/${EVENT_ID}/slots/${slotId}`, { method: 'DELETE' });
+        const oldSlot = slots.find(s => s.id === slotId);
+        const newSlot = await apiFetch(`/api/events/${EVENT_ID}/slots`, {
+          method: 'POST',
+          body: JSON.stringify({
+            date: oldSlot.date,
+            start_time: oldSlot.start_time,
+            end_time: oldSlot.end_time,
+            role: job.title,
+            location: job.location || '',
+            required_count: job.required_count,
+            job_type_id: job.id,
+          }),
+        });
+        await apiFetch(`/api/events/${EVENT_ID}/slots/${newSlot.id}/assign`, {
+          method: 'POST',
+          body: JSON.stringify({ member_id: memberId }),
+        });
+        closeBoardSlotModal();
+        await loadShifts();
+        showToast('シフトを変更しました');
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.classList.remove('hidden');
+      }
+      return;
+    }
+
+    // ── 新規登録モード ──────────────────────────────────────────────
+    if (!pendingBoardSlot) return;
     try {
-      const { slotId, assignmentId, memberId } = editingSlot;
-      // 1. 古い割り当て削除
-      await apiFetch(`/api/assignments/${assignmentId}`, { method: 'DELETE' });
-      // 2. 既存スロット削除
-      await apiFetch(`/api/events/${EVENT_ID}/slots/${slotId}`, { method: 'DELETE' });
-      // 3. 新しい仕事でスロット作成（元の時間帯を slots から取得済み）
-      const oldSlot = slots.find(s => s.id === slotId);
-      const newSlot = await apiFetch(`/api/events/${EVENT_ID}/slots`, {
+      const slot = await apiFetch(`/api/events/${EVENT_ID}/slots`, {
         method: 'POST',
         body: JSON.stringify({
-          date: oldSlot.date,
-          start_time: oldSlot.start_time,
-          end_time: oldSlot.end_time,
+          date: currentDay,
+          start_time: pendingBoardSlot.startTime,
+          end_time: pendingBoardSlot.endTime,
           role: job.title,
           location: job.location || '',
           required_count: job.required_count,
           job_type_id: job.id,
         }),
       });
-      // 4. 再割り当て
-      await apiFetch(`/api/events/${EVENT_ID}/slots/${newSlot.id}/assign`, {
+      await apiFetch(`/api/events/${EVENT_ID}/slots/${slot.id}/assign`, {
         method: 'POST',
-        body: JSON.stringify({ member_id: memberId }),
+        body: JSON.stringify({ member_id: pendingBoardSlot.memberId }),
       });
       closeBoardSlotModal();
       await loadShifts();
-      showToast('シフトを変更しました');
+      showToast('シフトを登録しました');
     } catch (err) {
       errEl.textContent = err.message;
       errEl.classList.remove('hidden');
     }
-    return;
-  }
-
-  // ── 新規登録モード ────────────────────────────────────────────────
-  if (!pendingBoardSlot) return;
-  try {
-    const slot = await apiFetch(`/api/events/${EVENT_ID}/slots`, {
-      method: 'POST',
-      body: JSON.stringify({
-        date: currentDay,
-        start_time: pendingBoardSlot.startTime,
-        end_time: pendingBoardSlot.endTime,
-        role: job.title,
-        location: job.location || '',
-        required_count: job.required_count,
-        job_type_id: job.id,
-      }),
-    });
-    await apiFetch(`/api/events/${EVENT_ID}/slots/${slot.id}/assign`, {
-      method: 'POST',
-      body: JSON.stringify({ member_id: pendingBoardSlot.memberId }),
-    });
-    closeBoardSlotModal();
-    await loadShifts();
-    showToast('シフトを登録しました');
-  } catch (err) {
-    errEl.textContent = err.message;
-    errEl.classList.remove('hidden');
-  }
+  });
 });
 
 document.querySelectorAll('.interval-btn').forEach(btn => {
@@ -1900,6 +1967,7 @@ document.querySelectorAll('.job-modal-close').forEach(b =>
 $('form-add-job').addEventListener('submit', async e => {
   e.preventDefault();
   const errEl = $('job-error');
+  const submitBtn = e.submitter || e.target.querySelector('[type=submit]');
   errEl.classList.add('hidden');
 
   let requirements = null;
@@ -1926,26 +1994,28 @@ $('form-add-job').addEventListener('submit', async e => {
     allowed_departments,
   };
 
-  try {
-    if (editingJobId) {
-      const updated = await apiFetch(`/api/events/${EVENT_ID}/jobs/${editingJobId}`, {
-        method: 'PATCH', body: JSON.stringify(body),
-      });
-      const idx = jobs.findIndex(j => j.id === updated.id);
-      if (idx !== -1) jobs[idx] = updated;
-    } else {
-      const created = await apiFetch(`/api/events/${EVENT_ID}/jobs`, {
-        method: 'POST', body: JSON.stringify(body),
-      });
-      jobs.push(created);
+  await withLoading(submitBtn, async () => {
+    try {
+      if (editingJobId) {
+        const updated = await apiFetch(`/api/events/${EVENT_ID}/jobs/${editingJobId}`, {
+          method: 'PATCH', body: JSON.stringify(body),
+        });
+        const idx = jobs.findIndex(j => j.id === updated.id);
+        if (idx !== -1) jobs[idx] = updated;
+      } else {
+        const created = await apiFetch(`/api/events/${EVENT_ID}/jobs`, {
+          method: 'POST', body: JSON.stringify(body),
+        });
+        jobs.push(created);
+      }
+      modalAddJob.classList.add('hidden');
+      renderJobList();
+      showToast(editingJobId ? '仕事を更新しました' : '仕事を追加しました');
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.classList.remove('hidden');
     }
-    modalAddJob.classList.add('hidden');
-    renderJobList();
-    showToast(editingJobId ? '仕事を更新しました' : '仕事を追加しました');
-  } catch (err) {
-    errEl.textContent = err.message;
-    errEl.classList.remove('hidden');
-  }
+  });
 });
 
 // ─── Add Slot Modal ───────────────────────────────────────────────────────────
@@ -1958,27 +2028,30 @@ document.querySelectorAll('.slot-modal-close').forEach(b =>
 $('form-add-slot').addEventListener('submit', async e => {
   e.preventDefault();
   const errEl = $('slot-error');
+  const submitBtn = e.submitter || e.target.querySelector('[type=submit]');
   errEl.classList.add('hidden');
-  try {
-    await apiFetch(`/api/events/${EVENT_ID}/slots`, {
-      method: 'POST',
-      body: JSON.stringify({
-        date: $('slot-date').value,
-        start_time: $('slot-start').value,
-        end_time: $('slot-end').value,
-        role: $('slot-role').value.trim(),
-        location: $('slot-location').value.trim(),
-        required_count: parseInt($('slot-count').value) || 1,
-      }),
-    });
-    modalSlot.classList.add('hidden');
-    $('form-add-slot').reset();
-    loadShifts();
-    showToast('シフト枠を追加しました');
-  } catch (err) {
-    errEl.textContent = err.message;
-    errEl.classList.remove('hidden');
-  }
+  await withLoading(submitBtn, async () => {
+    try {
+      await apiFetch(`/api/events/${EVENT_ID}/slots`, {
+        method: 'POST',
+        body: JSON.stringify({
+          date: $('slot-date').value,
+          start_time: $('slot-start').value,
+          end_time: $('slot-end').value,
+          role: $('slot-role').value.trim(),
+          location: $('slot-location').value.trim(),
+          required_count: parseInt($('slot-count').value) || 1,
+        }),
+      });
+      modalSlot.classList.add('hidden');
+      $('form-add-slot').reset();
+      loadShifts();
+      showToast('シフト枠を追加しました');
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.classList.remove('hidden');
+    }
+  });
 });
 
 // ─── Assign Modal ─────────────────────────────────────────────────────────────
@@ -2014,17 +2087,20 @@ function openAssignModal(slotId) {
 
     list.querySelectorAll('.btn-do-assign:not([disabled])').forEach(btn => {
       btn.addEventListener('click', async () => {
-        try {
-          await apiFetch(`/api/events/${EVENT_ID}/slots/${currentSlotId}/assign`, {
-            method: 'POST',
-            body: JSON.stringify({ member_id: parseInt(btn.dataset.mid) }),
-          });
-          modalAssign.classList.add('hidden');
-          loadShifts();
-        } catch (err) {
-          $('assign-error').textContent = err.message;
-          $('assign-error').classList.remove('hidden');
-        }
+        await withLoading(btn, async () => {
+          try {
+            await apiFetch(`/api/events/${EVENT_ID}/slots/${currentSlotId}/assign`, {
+              method: 'POST',
+              body: JSON.stringify({ member_id: parseInt(btn.dataset.mid) }),
+            });
+            modalAssign.classList.add('hidden');
+            showToast('メンバーを割り当てました');
+            loadShifts();
+          } catch (err) {
+            $('assign-error').textContent = err.message;
+            $('assign-error').classList.remove('hidden');
+          }
+        });
       });
     });
   }
