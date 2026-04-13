@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, time as time_type
 import csv
 import io
 import json as _builtin_json
-from app import cache
+from extensions import cache
 
 admin_bp = Blueprint('admin', __name__)
 
