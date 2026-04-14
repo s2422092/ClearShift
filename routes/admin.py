@@ -2,10 +2,11 @@ from flask import Blueprint, render_template, redirect, url_for, request, jsonif
 from flask_login import login_required, current_user
 from models import db, Event, EventMember, ShiftSlot, ShiftAssignment, Availability, EventCollaborator, User, JobType, ShiftAbsence
 from datetime import date, datetime, timedelta, time as time_type
+from sqlalchemy.orm import joinedload
 import csv
 import io
 import json as _builtin_json
-from extensions import cache
+from extensions import cache, limiter
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -136,6 +137,7 @@ def api_events():
 
 @admin_bp.route('/api/events', methods=['POST'])
 @login_required
+@limiter.limit("60 per minute")
 def api_create_event():
     data = request.get_json()
     title = (data.get('title') or '').strip()
@@ -219,6 +221,18 @@ def api_delete_event(event_id):
 @login_required
 def api_members(event_id):
     _can_access_event(event_id)
+    page = request.args.get('page', type=int)
+    if page:
+        per_page = request.args.get('per_page', 100, type=int)
+        pag = EventMember.query.filter_by(event_id=event_id).order_by(EventMember.name).paginate(
+            page=page, per_page=per_page, error_out=False
+        )
+        return jsonify({
+            'members': [m.to_dict() for m in pag.items],
+            'total': pag.total,
+            'pages': pag.pages,
+            'page': page,
+        })
     members = EventMember.query.filter_by(event_id=event_id).order_by(EventMember.name).all()
     return jsonify([m.to_dict() for m in members])
 
@@ -485,7 +499,13 @@ def api_shift_data(event_id):
     if cached is not None:
         return jsonify(cached)
 
-    slots    = ShiftSlot.query.filter_by(event_id=event_id).order_by(ShiftSlot.date, ShiftSlot.start_time).all()
+    slots = (
+        ShiftSlot.query
+        .filter_by(event_id=event_id)
+        .options(joinedload(ShiftSlot.assignments).joinedload(ShiftAssignment.member))
+        .order_by(ShiftSlot.date, ShiftSlot.start_time)
+        .all()
+    )
     members  = EventMember.query.filter_by(event_id=event_id).order_by(EventMember.created_at).all()
     jobs     = JobType.query.filter_by(event_id=event_id).order_by(JobType.created_at).all()
     absences = ShiftAbsence.query.filter_by(event_id=event_id).all()
@@ -509,6 +529,7 @@ def api_slots(event_id):
 
 @admin_bp.route('/api/events/<int:event_id>/slots', methods=['POST'])
 @login_required
+@limiter.limit("60 per minute")
 def api_create_slot(event_id):
     _can_access_event(event_id)
     data = request.get_json()
@@ -659,6 +680,7 @@ def api_delete_job(event_id, job_id):
 
 @admin_bp.route('/api/events/<int:event_id>/slots/<int:slot_id>/assign', methods=['POST'])
 @login_required
+@limiter.limit("120 per minute")
 def api_assign(event_id, slot_id):
     _can_access_event(event_id)
     slot = ShiftSlot.query.filter_by(id=slot_id, event_id=event_id).first_or_404()

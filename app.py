@@ -5,7 +5,7 @@ from flask_login import LoginManager
 from flask_compress import Compress
 from config import Config
 from models import db, User
-from extensions import cache
+from extensions import cache, limiter
 
 APP_START_TIME = str(int(time.time()))
 
@@ -18,6 +18,11 @@ def create_app():
     db.init_app(app)
     Compress(app)
     cache.init_app(app)
+
+    # レートリミッター: Redis が設定されていればそちらを使用、なければメモリ
+    _redis_url = app.config.get('CACHE_REDIS_URL', '')
+    app.config['RATELIMIT_STORAGE_URI'] = _redis_url if _redis_url else 'memory://'
+    limiter.init_app(app)
 
     login_manager = LoginManager()
     login_manager.init_app(app)
@@ -58,6 +63,12 @@ def create_app():
     app.register_blueprint(viewer_bp)
 
     # エラーハンドラー
+    @app.errorhandler(429)
+    def rate_limit_exceeded(e):
+        if request.is_json:
+            return jsonify({'error': 'リクエストが多すぎます。しばらくお待ちください。'}), 429
+        return 'Too Many Requests', 429
+
     @app.errorhandler(400)
     def bad_request(e):
         if request.is_json:
