@@ -5,6 +5,7 @@ from flask_login import LoginManager
 from flask_compress import Compress
 from config import Config
 from models import db, User
+from extensions import cache, limiter
 
 APP_START_TIME = str(int(time.time()))
 
@@ -16,6 +17,12 @@ def create_app():
     # 拡張機能の初期化
     db.init_app(app)
     Compress(app)
+    cache.init_app(app)
+
+    # レートリミッター: Redis が設定されていればそちらを使用、なければメモリ
+    _redis_url = app.config.get('CACHE_REDIS_URL', '')
+    app.config['RATELIMIT_STORAGE_URI'] = _redis_url if _redis_url else 'memory://'
+    limiter.init_app(app)
 
     login_manager = LoginManager()
     login_manager.init_app(app)
@@ -49,86 +56,68 @@ def create_app():
     from routes.auth import auth_bp
     from routes.admin import admin_bp
     from routes.viewer import viewer_bp
+    from routes.cron import cron_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(viewer_bp)
+    app.register_blueprint(cron_bp)
+
+    def _is_api_request():
+        """API パスへのリクエストかどうかを判定（パス優先・Content-Type 不問）"""
+        return request.path.startswith('/api/')
+
+    # Flask-Login: セッション切れ時、API なら HTML リダイレクトではなく JSON 401 を返す
+    @login_manager.unauthorized_handler
+    def unauthorized():
+        if _is_api_request():
+            return jsonify({'error': 'ログインが必要です。ページを再読み込みしてください。'}), 401
+        from flask import redirect, url_for
+        return redirect(url_for('auth.login', next=request.url))
 
     # エラーハンドラー
+    @app.errorhandler(429)
+    def rate_limit_exceeded(e):
+        if _is_api_request():
+            return jsonify({'error': 'リクエストが多すぎます。しばらくお待ちください。'}), 429
+        return 'Too Many Requests', 429
+
     @app.errorhandler(400)
     def bad_request(e):
-        if request.is_json:
-            return jsonify({'error': 'Bad Request'}), 400
+        if _is_api_request():
+            return jsonify({'error': 'リクエストが不正です。'}), 400
         return 'Bad Request', 400
 
     @app.errorhandler(403)
     def forbidden(e):
-        if request.is_json:
-            return jsonify({'error': 'Forbidden'}), 403
+        if _is_api_request():
+            return jsonify({'error': 'アクセス権がありません。'}), 403
         return 'Forbidden', 403
 
     @app.errorhandler(404)
     def not_found(e):
-        if request.is_json:
-            return jsonify({'error': 'Not Found'}), 404
+        if _is_api_request():
+            return jsonify({'error': 'リソースが見つかりません。'}), 404
         return 'Not Found', 404
 
     @app.errorhandler(500)
     def internal_error(e):
         db.session.rollback()
-        if request.is_json:
-            return jsonify({'error': 'Internal Server Error'}), 500
+        if _is_api_request():
+            return jsonify({'error': 'サーバーエラーが発生しました。しばらく後に再試行してください。'}), 500
         return 'Internal Server Error', 500
 
     @app.teardown_appcontext
     def shutdown_session(exception=None):
         db.session.remove()
 
-    # テーブルの自動作成 + カラム追加マイグレーション
+    # Vercel サーバーレス環境では複数インスタンスが同時起動するため
+    # ALTER TABLE / CREATE INDEX を起動時に実行するとデッドロックが発生する。
+    # スキーマは schema.sql で事前に適用済みのため、ここでは db.create_all() のみ実行する。
+    # ローカル開発環境（VERCEL 未設定）でも同様に schema.sql を使うこと。
     with app.app_context():
         db.create_all()
-        from sqlalchemy import text
-        with db.engine.connect() as conn:
-            conn.execute(text(
-                "ALTER TABLE job_types ADD COLUMN IF NOT EXISTS color VARCHAR(7) NOT NULL DEFAULT '#4DA3FF'"
-            ))
-            conn.execute(text(
-                "ALTER TABLE shift_slots ADD COLUMN IF NOT EXISTS job_type_id INTEGER REFERENCES job_types(id) ON DELETE SET NULL"
-            ))
-            conn.execute(text(
-                "ALTER TABLE event_members ADD COLUMN IF NOT EXISTS is_leader BOOLEAN NOT NULL DEFAULT FALSE"
-            ))
-            conn.execute(text(
-                "ALTER TABLE shift_assignments ADD COLUMN IF NOT EXISTS reported_at TIMESTAMP"
-            ))
-            conn.execute(text(
-                "ALTER TABLE shift_assignments ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP"
-            ))
-            conn.execute(text(
-                "ALTER TABLE job_types ADD COLUMN IF NOT EXISTS requirements_json TEXT"
-            ))
-            conn.execute(text(
-                "ALTER TABLE job_types ADD COLUMN IF NOT EXISTS allowed_departments_json TEXT"
-            ))
-            conn.execute(text(
-                "ALTER TABLE events ADD COLUMN IF NOT EXISTS day_labels_json TEXT"
-            ))
-            conn.execute(text(
-                "ALTER TABLE job_types ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES job_categories(id) ON DELETE SET NULL"
-            ))
-            # 低速回線でも高速に返せるよう主要クエリにインデックスを付与
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_shift_slots_event_date     ON shift_slots (event_id, date)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_shift_assignments_slot      ON shift_assignments (slot_id)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_shift_assignments_member    ON shift_assignments (member_id)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_event_members_event         ON event_members (event_id)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_availabilities_member       ON availabilities (member_id)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_shift_absences_event        ON shift_absences (event_id)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_job_types_event             ON job_types (event_id)"))
-            conn.commit()
-
-        # 起動時に既存JSONカラムをコンパクト化（ホワイトスペース除去）
-        _compact_existing_json(app)
 
     return app
 

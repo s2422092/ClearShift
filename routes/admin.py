@@ -2,9 +2,12 @@ from flask import Blueprint, render_template, redirect, url_for, request, jsonif
 from flask_login import login_required, current_user
 from models import db, Event, EventMember, ShiftSlot, ShiftAssignment, Availability, EventCollaborator, User, JobType, ShiftAbsence
 from datetime import date, datetime, timedelta, time as time_type
+from sqlalchemy.orm import joinedload
 import csv
 import io
 import json as _builtin_json
+import hashlib
+from extensions import cache, limiter
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -25,6 +28,11 @@ def _user_events():
     return Event.query.filter(
         (Event.creator_id == current_user.id) | Event.id.in_(collab_subq)
     ).order_by(Event.created_at.desc()).all()
+
+
+def _invalidate_event_cache(event_id):
+    """シフトデータが変更されたときに該当イベントのキャッシュを削除する"""
+    cache.delete(f'shift_data_{event_id}')
 
 
 def _can_access_event(event_id):
@@ -130,6 +138,7 @@ def api_events():
 
 @admin_bp.route('/api/events', methods=['POST'])
 @login_required
+@limiter.limit("60 per minute")
 def api_create_event():
     data = request.get_json()
     title = (data.get('title') or '').strip()
@@ -213,6 +222,18 @@ def api_delete_event(event_id):
 @login_required
 def api_members(event_id):
     _can_access_event(event_id)
+    page = request.args.get('page', type=int)
+    if page:
+        per_page = request.args.get('per_page', 100, type=int)
+        pag = EventMember.query.filter_by(event_id=event_id).order_by(EventMember.name).paginate(
+            page=page, per_page=per_page, error_out=False
+        )
+        return jsonify({
+            'members': [m.to_dict() for m in pag.items],
+            'total': pag.total,
+            'pages': pag.pages,
+            'page': page,
+        })
     members = EventMember.query.filter_by(event_id=event_id).order_by(EventMember.name).all()
     return jsonify([m.to_dict() for m in members])
 
@@ -472,18 +493,31 @@ def api_copy_shifts(event_id, src_id, dst_id):
 @admin_bp.route('/api/events/<int:event_id>/shift-data', methods=['GET'])
 @login_required
 def api_shift_data(event_id):
-    """slots + members + jobs + absences を1回のリクエストで返す統合エンドポイント"""
+    """slots + members + jobs + absences を1回のリクエストで返す統合エンドポイント（60秒キャッシュ）"""
     _can_access_event(event_id)
-    slots   = ShiftSlot.query.filter_by(event_id=event_id).order_by(ShiftSlot.date, ShiftSlot.start_time).all()
-    members = EventMember.query.filter_by(event_id=event_id).order_by(EventMember.created_at).all()
-    jobs    = JobType.query.filter_by(event_id=event_id).order_by(JobType.created_at).all()
+    cache_key = f'shift_data_{event_id}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
+
+    slots = (
+        ShiftSlot.query
+        .filter_by(event_id=event_id)
+        .options(joinedload(ShiftSlot.assignments).joinedload(ShiftAssignment.member))
+        .order_by(ShiftSlot.date, ShiftSlot.start_time)
+        .all()
+    )
+    members  = EventMember.query.filter_by(event_id=event_id).order_by(EventMember.created_at).all()
+    jobs     = JobType.query.filter_by(event_id=event_id).order_by(JobType.created_at).all()
     absences = ShiftAbsence.query.filter_by(event_id=event_id).all()
-    return jsonify({
+    data = {
         'slots':    [s.to_dict() for s in slots],
         'members':  [m.to_dict() for m in members],
         'jobs':     [j.to_dict() for j in jobs],
         'absences': [a.to_dict() for a in absences],
-    })
+    }
+    cache.set(cache_key, data, timeout=60)
+    return jsonify(data)
 
 
 @admin_bp.route('/api/events/<int:event_id>/slots', methods=['GET'])
@@ -496,6 +530,7 @@ def api_slots(event_id):
 
 @admin_bp.route('/api/events/<int:event_id>/slots', methods=['POST'])
 @login_required
+@limiter.limit("60 per minute")
 def api_create_slot(event_id):
     _can_access_event(event_id)
     data = request.get_json()
@@ -511,6 +546,18 @@ def api_create_slot(event_id):
         return jsonify({'error': '日付・時間の形式が正しくありません。'}), 400
 
     job_type_id = data.get('job_type_id')
+
+    # 同一イベント・日付・開始時刻・終了時刻・仕事の重複スロット作成を防ぐ
+    duplicate = ShiftSlot.query.filter_by(
+        event_id=event_id,
+        date=slot_date,
+        start_time=start_time,
+        end_time=end_time,
+        job_type_id=int(job_type_id) if job_type_id else None,
+    ).first()
+    if duplicate:
+        return jsonify(duplicate.to_dict()), 200  # 既存スロットをそのまま返す
+
     slot = ShiftSlot(
         event_id=event_id,
         job_type_id=int(job_type_id) if job_type_id else None,
@@ -524,6 +571,7 @@ def api_create_slot(event_id):
     )
     db.session.add(slot)
     db.session.commit()
+    _invalidate_event_cache(event_id)
     return jsonify(slot.to_dict()), 201
 
 
@@ -534,6 +582,7 @@ def api_delete_slot(event_id, slot_id):
     slot = ShiftSlot.query.filter_by(id=slot_id, event_id=event_id).first_or_404()
     db.session.delete(slot)
     db.session.commit()
+    _invalidate_event_cache(event_id)
     return jsonify({'ok': True})
 
 
@@ -613,6 +662,7 @@ def api_update_job(event_id, job_id):
         depts = data['allowed_departments']
         job.allowed_departments_json = _jdump(depts) if depts else None
     db.session.commit()
+    _invalidate_event_cache(event_id)
     return jsonify(job.to_dict())
 
 
@@ -623,6 +673,7 @@ def api_delete_job(event_id, job_id):
     job = JobType.query.filter_by(id=job_id, event_id=event_id).first_or_404()
     db.session.delete(job)
     db.session.commit()
+    _invalidate_event_cache(event_id)
     return jsonify({'ok': True})
 
 
@@ -630,6 +681,7 @@ def api_delete_job(event_id, job_id):
 
 @admin_bp.route('/api/events/<int:event_id>/slots/<int:slot_id>/assign', methods=['POST'])
 @login_required
+@limiter.limit("120 per minute")
 def api_assign(event_id, slot_id):
     _can_access_event(event_id)
     slot = ShiftSlot.query.filter_by(id=slot_id, event_id=event_id).first_or_404()
@@ -648,14 +700,15 @@ def api_assign(event_id, slot_id):
             if allowed and member.department not in allowed:
                 return jsonify({'error': f'この仕事（{job.title}）は {", ".join(allowed)} のメンバーのみ担当できます。'}), 400
 
-    # 重複チェック
+    # 重複チェック（冪等: 既に割り当て済みなら既存データをそのまま返す）
     existing = ShiftAssignment.query.filter_by(slot_id=slot_id, member_id=member_id).first()
     if existing:
-        return jsonify({'error': 'このメンバーは既に割り当て済みです。'}), 400
+        return jsonify(existing.to_dict()), 200
 
     assignment = ShiftAssignment(slot_id=slot_id, member_id=member_id)
     db.session.add(assignment)
     db.session.commit()
+    _invalidate_event_cache(event_id)
     return jsonify(assignment.to_dict()), 201
 
 
@@ -669,6 +722,7 @@ def api_delete_assignment(assignment_id):
     _can_access_event(slot.event_id)
     db.session.delete(assignment)
     db.session.commit()
+    _invalidate_event_cache(slot.event_id)
     return jsonify({'ok': True})
 
 
@@ -686,6 +740,7 @@ def api_update_assignment(assignment_id):
     if 'note' in data:
         assignment.note = data['note']
     db.session.commit()
+    _invalidate_event_cache(slot.event_id)
     return jsonify(assignment.to_dict())
 
 

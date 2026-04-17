@@ -1,5 +1,8 @@
 # ── 直接依存 ──────────────────────────────────────────────────────────────────
 Flask==3.0.3
+Flask-Caching==2.3.0
+Flask-Limiter==3.5.0
+redis==5.0.4
 Flask-SQLAlchemy==3.1.1
 Flask-Login==0.6.3
 Flask-Compress==1.14
@@ -9,9 +12,11 @@ psycopg2-binary==2.9.9
 python-dotenv==1.0.1
 gunicorn==21.2.0
 
+# ── Supabase ──────────────────────────────────────────────────────────────────
+supabase==2.4.0          # Supabase Python クライアント（Storage / Auth / Realtime 等）
+
 # ── 間接依存（Flask / SQLAlchemy が内部で使用） ───────────────────────────────
 blinker==1.9.0
-brotli==1.2.0
 click==8.3.1
 itsdangerous==2.2.0
 Jinja2==3.1.6
