@@ -40,6 +40,14 @@ async function apiFetch(url, opts = {}) {
         headers: { 'Content-Type': 'application/json' },
         ...opts,
       });
+      // セッション切れなどで HTML が返ってきた場合を検知してリロード促進
+      const ct = res.headers.get('Content-Type') || '';
+      if (!ct.includes('application/json')) {
+        if (res.status === 401 || res.url.includes('/login')) {
+          throw new Error('セッションが切れました。ページを再読み込みしてください。');
+        }
+        throw new Error(`サーバーエラー (${res.status})。ページを再読み込みしてください。`);
+      }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'エラーが発生しました');
       return data;
@@ -1133,7 +1141,7 @@ function renderShiftBoard() {
 
   // メンバー名セルクリック（コピーモード時のみコピー対象として機能）
   board.querySelectorAll('.btn-member-row-action').forEach(td => {
-    td.addEventListener('click', (e) => {
+    td.addEventListener('click', () => {
       if (!isCopyMode) return;
       const targetMid = parseInt(td.dataset.mid);
       if (targetMid !== copySourceMemberId) handleBoardCopyClick(targetMid);
@@ -1256,16 +1264,6 @@ function openBoardSlotModal(memberId, startTime, endTime) {
   pendingBoardSlot = { memberId, startTime, endTime };
   editingSlot = null;
 
-  // 選択範囲内に既存シフトがあるか確認
-  const startM = timeToMin(startTime);
-  const endM   = timeToMin(endTime);
-  const rangeSlots = slots.filter(s =>
-    s.date === currentDay &&
-    s.assignments.some(a => a.member_id === memberId) &&
-    timeToMin(s.start_time) < endM && timeToMin(s.end_time) > startM
-  );
-  const hasShiftsInRange = rangeSlots.length > 0;
-
   $('board-slot-title').textContent = 'シフトを登録';
   $('btn-board-slot-delete').classList.add('hidden');
   $('btn-board-slot-submit').textContent = '登録する';
@@ -1385,7 +1383,6 @@ function openOccupiedCellMenu(slotId, assignmentId) {
 
   const assignment = slot.assignments.find(a => a.id === assignmentId);
   const member = members.find(m => m.id === assignment?.member_id);
-  const job = jobs.find(j => j.id === slot.job_type_id);
 
   editingSlot = { slotId, assignmentId, memberId: assignment?.member_id };
   pendingBoardSlot = null;
@@ -1787,7 +1784,6 @@ function openColorPopup(anchorEl, jobId) {
 
   // anchorEl の位置に配置
   const rect = anchorEl.getBoundingClientRect();
-  const scrollTop = window.scrollY || document.documentElement.scrollTop;
   popup.style.position = 'fixed';
   popup.style.top  = `${rect.bottom + 6}px`;
   popup.style.left = `${rect.left}px`;

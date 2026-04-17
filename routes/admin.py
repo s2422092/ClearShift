@@ -493,20 +493,12 @@ def api_copy_shifts(event_id, src_id, dst_id):
 @admin_bp.route('/api/events/<int:event_id>/shift-data', methods=['GET'])
 @login_required
 def api_shift_data(event_id):
-    """slots + members + jobs + absences を1回のリクエストで返す統合エンドポイント（60秒キャッシュ + ETag）"""
+    """slots + members + jobs + absences を1回のリクエストで返す統合エンドポイント（60秒キャッシュ）"""
     _can_access_event(event_id)
     cache_key = f'shift_data_{event_id}'
     cached = cache.get(cache_key)
     if cached is not None:
-        etag = '"' + hashlib.md5(
-            _builtin_json.dumps(cached, sort_keys=True, ensure_ascii=False).encode()
-        ).hexdigest() + '"'
-        if request.headers.get('If-None-Match') == etag:
-            return Response(status=304)
-        resp = jsonify(cached)
-        resp.headers['ETag'] = etag
-        resp.headers['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=30'
-        return resp
+        return jsonify(cached)
 
     slots = (
         ShiftSlot.query
@@ -525,13 +517,7 @@ def api_shift_data(event_id):
         'absences': [a.to_dict() for a in absences],
     }
     cache.set(cache_key, data, timeout=60)
-    etag = '"' + hashlib.md5(
-        _builtin_json.dumps(data, sort_keys=True, ensure_ascii=False).encode()
-    ).hexdigest() + '"'
-    resp = jsonify(data)
-    resp.headers['ETag'] = etag
-    resp.headers['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=30'
-    return resp
+    return jsonify(data)
 
 
 @admin_bp.route('/api/events/<int:event_id>/slots', methods=['GET'])

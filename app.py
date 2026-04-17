@@ -64,36 +64,48 @@ def create_app():
     app.register_blueprint(viewer_bp)
     app.register_blueprint(cron_bp)
 
+    def _is_api_request():
+        """API パスへのリクエストかどうかを判定（パス優先・Content-Type 不問）"""
+        return request.path.startswith('/api/')
+
+    # Flask-Login: セッション切れ時、API なら HTML リダイレクトではなく JSON 401 を返す
+    @login_manager.unauthorized_handler
+    def unauthorized():
+        if _is_api_request():
+            return jsonify({'error': 'ログインが必要です。ページを再読み込みしてください。'}), 401
+        from flask import redirect, url_for
+        return redirect(url_for('auth.login', next=request.url))
+
     # エラーハンドラー
     @app.errorhandler(429)
     def rate_limit_exceeded(e):
-        if request.is_json:
+        if _is_api_request():
             return jsonify({'error': 'リクエストが多すぎます。しばらくお待ちください。'}), 429
         return 'Too Many Requests', 429
 
     @app.errorhandler(400)
     def bad_request(e):
-        if request.is_json:
-            return jsonify({'error': 'Bad Request'}), 400
+        if _is_api_request():
+            return jsonify({'error': 'リクエストが不正です。'}), 400
         return 'Bad Request', 400
 
     @app.errorhandler(403)
     def forbidden(e):
-        if request.is_json:
-            return jsonify({'error': 'Forbidden'}), 403
+        if _is_api_request():
+            return jsonify({'error': 'アクセス権がありません。'}), 403
         return 'Forbidden', 403
 
     @app.errorhandler(404)
     def not_found(e):
-        if request.is_json:
-            return jsonify({'error': 'Not Found'}), 404
+        if _is_api_request():
+            return jsonify({'error': 'リソースが見つかりません。'}), 404
         return 'Not Found', 404
 
     @app.errorhandler(500)
     def internal_error(e):
         db.session.rollback()
-        if request.is_json:
-            return jsonify({'error': 'Internal Server Error'}), 500
+        if _is_api_request():
+            return jsonify({'error': 'サーバーエラーが発生しました。しばらく後に再試行してください。'}), 500
         return 'Internal Server Error', 500
 
     @app.teardown_appcontext
