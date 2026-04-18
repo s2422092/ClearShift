@@ -488,19 +488,47 @@ def api_copy_shifts(event_id, src_id, dst_id):
     src = EventMember.query.filter_by(id=src_id, event_id=event_id).first_or_404()
     dst = EventMember.query.filter_by(id=dst_id, event_id=event_id).first_or_404()
 
-    src_assignments = ShiftAssignment.query.filter_by(member_id=src_id).join(ShiftSlot).filter(
-        ShiftSlot.event_id == event_id
-    ).all()
+    src_assignments = (
+        ShiftAssignment.query
+        .filter_by(member_id=src_id)
+        .join(ShiftSlot)
+        .filter(ShiftSlot.event_id == event_id)
+        .options(joinedload(ShiftAssignment.slot))
+        .all()
+    )
 
     copied = 0
+    skipped = 0
     for a in src_assignments:
-        existing = ShiftAssignment.query.filter_by(slot_id=a.slot_id, member_id=dst_id).first()
-        if not existing:
-            db.session.add(ShiftAssignment(slot_id=a.slot_id, member_id=dst_id))
-            copied += 1
+        slot = a.slot
+        # 同一スロットへの重複割り当てチェック
+        if ShiftAssignment.query.filter_by(slot_id=slot.id, member_id=dst_id).first():
+            skipped += 1
+            continue
+        # 同日・時間帯重複チェック
+        overlap = (
+            db.session.query(ShiftAssignment)
+            .join(ShiftSlot, ShiftAssignment.slot_id == ShiftSlot.id)
+            .filter(
+                ShiftAssignment.member_id == dst_id,
+                ShiftSlot.event_id == event_id,
+                ShiftSlot.date == slot.date,
+                ShiftSlot.start_time < slot.end_time,
+                ShiftSlot.end_time > slot.start_time,
+                ShiftSlot.id != slot.id,
+            )
+            .first()
+        )
+        if overlap:
+            skipped += 1
+            continue
+        db.session.add(ShiftAssignment(slot_id=slot.id, member_id=dst_id))
+        copied += 1
 
     db.session.commit()
-    return jsonify({'ok': True, 'copied': copied})
+    if copied:
+        _invalidate_event_cache(event_id)
+    return jsonify({'ok': True, 'copied': copied, 'skipped': skipped})
 
 
 # ── API: Shift Slots ─────────────────────────────────────────────────────────
@@ -719,6 +747,26 @@ def api_assign(event_id, slot_id):
     existing = ShiftAssignment.query.filter_by(slot_id=slot_id, member_id=member_id).first()
     if existing:
         return jsonify(existing.to_dict()), 200
+
+    # 同日・時間帯重複チェック（同一人物が同じ時間帯に複数シフトを持てないようにする）
+    overlap = (
+        db.session.query(ShiftAssignment)
+        .join(ShiftSlot, ShiftAssignment.slot_id == ShiftSlot.id)
+        .filter(
+            ShiftAssignment.member_id == member_id,
+            ShiftSlot.event_id == event_id,
+            ShiftSlot.date == slot.date,
+            ShiftSlot.start_time < slot.end_time,
+            ShiftSlot.end_time > slot.start_time,
+            ShiftSlot.id != slot_id,
+        )
+        .first()
+    )
+    if overlap:
+        overlap_slot = overlap.slot
+        return jsonify({
+            'error': f'この時間帯（{slot.date} {slot.start_time.strftime("%H:%M")}〜{slot.end_time.strftime("%H:%M")}）には既に別のシフトが割り当て済みです。'
+        }), 409
 
     assignment = ShiftAssignment(slot_id=slot_id, member_id=member_id)
     db.session.add(assignment)

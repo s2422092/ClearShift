@@ -1253,7 +1253,8 @@ async function handleBoardCopyClick(targetMemberId) {
     copySourceMemberId = null;
     closeCopyTargetDropdown();
     await loadShifts();
-    showToast(`「${src?.name || ''}」→「${tgt?.name || ''}」にシフトをコピーしました（${res.copied}件）`);
+    const skippedMsg = res.skipped ? `・${res.skipped}件は時間帯重複のためスキップ` : '';
+    showToast(`「${src?.name || ''}」→「${tgt?.name || ''}」にシフトをコピーしました（${res.copied}件${skippedMsg}）`);
   } catch (err) {
     showToast(err.message, true);
   }
@@ -1530,7 +1531,7 @@ async function executeCopyToTargets() {
   updateCopyExecuteBtn();
   updateBoardHint();
   await loadShifts();
-  if (names.length > 0) showToast(`「${src?.name || ''}」→「${names.join('・')}」にコピーしました（${totalCopied}件）`);
+  if (names.length > 0) showToast(`「${src?.name || ''}」→「${names.join('・')}」にコピーしました（${totalCopied}件）` + (totalCopied === 0 ? '・時間帯重複のためすべてスキップされました' : ''));
 }
 
 $('copy-target-input').addEventListener('input', function() {
