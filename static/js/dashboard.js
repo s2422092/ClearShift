@@ -179,6 +179,10 @@ async function withLoading(btn, fn) {
 // シフト登録専用の排他フラグ（withLoading より上位でブロック）
 let _shiftSubmitting = false;
 
+// 楽観的UI用の一時ID（負の整数を使う）
+let _tempIdSeq = -1;
+function _nextTempId() { return _tempIdSeq--; }
+
 // ─── Tab switching ────────────────────────────────────────────────────────────
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -817,6 +821,7 @@ function renderShiftBoard() {
             isFirst: prevM < startM,
             spanPx,
             jobColor,
+            pending: !!slot._pending,
           });
         }
       });
@@ -934,8 +939,9 @@ function renderShiftBoard() {
             ? `<span class="absolute top-0 left-0 flex items-center px-1 text-[9px] font-semibold whitespace-nowrap pointer-events-none z-[1]" style="height:100%;width:${cell.spanPx}px;color:${isSelected ? '#EF4444' : cell.jobColor}">${cell.role}</span>`
             : '';
           const selectedRing = isSelected ? 'outline:2px solid #EF4444;outline-offset:-2px;' : '';
+          const pendingCls = cell.pending ? 'animate-pulse opacity-60' : '';
           return `<td style="min-width:${cw}px;width:${cw}px;background:${bg};${border}${selectedRing}"
-            class="board-cell-occupied relative h-10 cursor-pointer border-b border-b-white/30 ${cb}"
+            class="board-cell-occupied relative h-10 cursor-pointer border-b border-b-white/30 ${pendingCls} ${cb}"
             data-slot="${cell.slotId}" data-aid="${cell.assignmentId}" data-member="${m.id}" data-time="${col}">${roleText}</td>`;
         }
         return `<td style="min-width:${cw}px;width:${cw}px"
@@ -1643,7 +1649,7 @@ $('btn-bulk-delete-exec').addEventListener('click', async () => {
 });
 
 $('btn-board-slot-submit').addEventListener('click', async function() {
-  if (_shiftSubmitting) return;          // 排他フラグで二重送信を完全ブロック
+  if (_shiftSubmitting) return;
   const errEl = $('board-slot-error');
   errEl.classList.add('hidden');
 
@@ -1656,82 +1662,119 @@ $('btn-board-slot-submit').addEventListener('click', async function() {
   }
 
   _shiftSubmitting = true;
-  await withLoading(this, async () => {
 
-    // ── 編集モード：既存スロットの仕事を差し替え ────────────────────
-    if (editingSlot) {
-      showOverlay('変更中…');
-      try {
-        const { slotId, assignmentId, memberId } = editingSlot;
-        await apiFetch(`/api/assignments/${assignmentId}`, { method: 'DELETE' });
-        await apiFetch(`/api/events/${EVENT_ID}/slots/${slotId}`, { method: 'DELETE' });
-        const oldSlot = slots.find(s => s.id === slotId);
-        const newSlot = await apiFetch(`/api/events/${EVENT_ID}/slots`, {
-          method: 'POST',
-          body: JSON.stringify({
-            date: oldSlot.date, start_time: oldSlot.start_time,
-            end_time: oldSlot.end_time, role: job.title,
-            location: job.location || '', required_count: job.required_count,
-            job_type_id: job.id,
-          }),
-        });
-        const assignment = await apiFetch(`/api/events/${EVENT_ID}/slots/${newSlot.id}/assign`, {
-          method: 'POST',
-          body: JSON.stringify({ member_id: memberId }),
-        });
-        // 楽観的UI更新：ローカルの slots を直接書き換えてすぐ再描画
-        newSlot.assignments = [assignment];
-        slots = slots.filter(s => s.id !== slotId);
-        slots.push(newSlot);
-        closeBoardSlotModal();
-        hideOverlay();
-        renderShiftBoard();
-        showToast('シフトを変更しました');
-        // バックグラウンドでキャッシュ無効化のみ（画面はすでに更新済み）
-        apiFetch(`/api/events/${EVENT_ID}/shift-data`).catch(() => {});
-      } catch (err) {
-        hideOverlay();
-        errEl.textContent = err.message;
-        errEl.classList.remove('hidden');
-      }
-      return;
-    }
+  // ── 編集モード：既存スロットの仕事を差し替え ────────────────────
+  if (editingSlot) {
+    const { slotId, assignmentId, memberId } = editingSlot;
+    const oldSlot = slots.find(s => s.id === slotId);
+    if (!oldSlot) { _shiftSubmitting = false; return; }
 
-    // ── 新規登録モード ──────────────────────────────────────────────
-    if (!pendingBoardSlot) return;
-    showOverlay('登録中…');
+    // ① 楽観的UI：旧スロットを仮の更新済み版に即時差し替え
+    const optimisticSlot = {
+      ...oldSlot,
+      role: job.title,
+      location: job.location || '',
+      required_count: job.required_count,
+      job_type_id: job.id,
+      _pending: true,
+    };
+    slots = slots.map(s => s.id === slotId ? optimisticSlot : s);
+    closeBoardSlotModal();
+    renderShiftBoard();
+
+    // ② バックグラウンドで1リクエストに統合して送信
     try {
-      const slot = await apiFetch(`/api/events/${EVENT_ID}/slots`, {
+      const newSlot = await apiFetch(`/api/events/${EVENT_ID}/slot-with-assignment/replace`, {
         method: 'POST',
         body: JSON.stringify({
-          date: currentDay,
-          start_time: pendingBoardSlot.startTime,
-          end_time: pendingBoardSlot.endTime,
+          old_assignment_id: assignmentId,
+          old_slot_id: slotId,
+          date: oldSlot.date,
+          start_time: oldSlot.start_time,
+          end_time: oldSlot.end_time,
           role: job.title,
           location: job.location || '',
           required_count: job.required_count,
           job_type_id: job.id,
+          member_id: memberId,
         }),
       });
-      const assignment = await apiFetch(`/api/events/${EVENT_ID}/slots/${slot.id}/assign`, {
-        method: 'POST',
-        body: JSON.stringify({ member_id: pendingBoardSlot.memberId }),
-      });
-      // 楽観的UI更新：ローカルの slots に追加してすぐ再描画
-      slot.assignments = [assignment];
-      slots.push(slot);
-      closeBoardSlotModal();
-      hideOverlay();
+      // ③ 仮データを実データに差し替え（ほぼ視覚変化なし）
+      slots = slots.filter(s => s.id !== slotId && s.id !== optimisticSlot.id);
+      slots.push(newSlot);
       renderShiftBoard();
-      showToast('シフトを登録しました');
-      // バックグラウンドでキャッシュ無効化のみ
-      apiFetch(`/api/events/${EVENT_ID}/shift-data`).catch(() => {});
+      showToast('シフトを変更しました');
     } catch (err) {
-      hideOverlay();
-      errEl.textContent = err.message;
-      errEl.classList.remove('hidden');
+      // ④ 失敗時は旧スロットに戻す
+      slots = slots.map(s => s.id === optimisticSlot.id ? oldSlot : s);
+      renderShiftBoard();
+      showToast(err.message, true);
     }
-  });
+    _shiftSubmitting = false;
+    return;
+  }
+
+  // ── 新規登録モード ──────────────────────────────────────────────
+  if (!pendingBoardSlot) { _shiftSubmitting = false; return; }
+  const { memberId, startTime, endTime } = pendingBoardSlot;
+
+  // ① 楽観的UI：仮スロットを即時追加してボードに表示
+  const tempSlotId = _nextTempId();
+  const tempAssignId = _nextTempId();
+  const m = members.find(x => x.id === memberId);
+  const tempSlot = {
+    id: tempSlotId,
+    event_id: EVENT_ID,
+    job_type_id: job.id,
+    date: currentDay,
+    start_time: startTime,
+    end_time: endTime,
+    role: job.title,
+    location: job.location || '',
+    required_count: job.required_count,
+    note: null,
+    assignments: [{
+      id: tempAssignId,
+      slot_id: tempSlotId,
+      member_id: memberId,
+      member_name: m?.name || '',
+      member_department: m?.department || '',
+      status: 'scheduled',
+      note: null,
+      reported_at: null,
+    }],
+    _pending: true,
+  };
+  slots.push(tempSlot);
+  closeBoardSlotModal();
+  renderShiftBoard();
+
+  // ② バックグラウンドで1リクエストに統合して送信
+  try {
+    const realSlot = await apiFetch(`/api/events/${EVENT_ID}/slot-with-assignment`, {
+      method: 'POST',
+      body: JSON.stringify({
+        date: currentDay,
+        start_time: startTime,
+        end_time: endTime,
+        role: job.title,
+        location: job.location || '',
+        required_count: job.required_count,
+        job_type_id: job.id,
+        member_id: memberId,
+      }),
+    });
+    // ③ 仮データを実データに差し替え（ほぼ視覚変化なし）
+    slots = slots.filter(s => s.id !== tempSlotId);
+    slots.push(realSlot);
+    renderShiftBoard();
+    showToast('シフトを登録しました');
+  } catch (err) {
+    // ④ 失敗時は仮スロットを削除してロールバック
+    slots = slots.filter(s => s.id !== tempSlotId);
+    renderShiftBoard();
+    showToast(err.message, true);
+  }
   _shiftSubmitting = false;
 });
 

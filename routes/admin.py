@@ -618,6 +618,164 @@ def api_create_slot(event_id):
     return jsonify(slot.to_dict()), 201
 
 
+@admin_bp.route('/api/events/<int:event_id>/slot-with-assignment', methods=['POST'])
+@login_required
+@limiter.limit("60 per minute")
+def api_create_slot_with_assignment(event_id):
+    """スロット作成＋メンバー割り当てを1トランザクションで実行（2往復→1往復）"""
+    _can_access_event(event_id)
+    data = request.get_json() or {}
+
+    try:
+        slot_date = date.fromisoformat(data['date'])
+        sp = data['start_time'].split(':')
+        ep = data['end_time'].split(':')
+        start_t = time_type(int(sp[0]), int(sp[1]))
+        end_t   = time_type(int(ep[0]), int(ep[1]))
+    except (KeyError, ValueError):
+        return jsonify({'error': '日付・時間の形式が正しくありません。'}), 400
+
+    member_id = data.get('member_id')
+    if not member_id:
+        return jsonify({'error': 'member_id が必要です。'}), 400
+    member = EventMember.query.filter_by(id=member_id, event_id=event_id).first_or_404()
+
+    job_type_id = data.get('job_type_id')
+    if job_type_id:
+        job = JobType.query.get(job_type_id)
+        if job:
+            allowed = job.get_allowed_departments()
+            if allowed and member.department not in allowed:
+                return jsonify({'error': f'この仕事は {", ".join(allowed)} のメンバーのみ担当できます。'}), 400
+
+    # 重複スロット → 再利用
+    slot = ShiftSlot.query.filter_by(
+        event_id=event_id, date=slot_date,
+        start_time=start_t, end_time=end_t,
+        job_type_id=int(job_type_id) if job_type_id else None,
+    ).first()
+    if not slot:
+        slot = ShiftSlot(
+            event_id=event_id,
+            job_type_id=int(job_type_id) if job_type_id else None,
+            date=slot_date, start_time=start_t, end_time=end_t,
+            role=(data.get('role') or '').strip() or None,
+            location=(data.get('location') or '').strip() or None,
+            required_count=int(data.get('required_count', 1)),
+        )
+        db.session.add(slot)
+        db.session.flush()  # slot.id を確定
+
+    # 時間帯重複チェック
+    overlap = (
+        db.session.query(ShiftAssignment)
+        .join(ShiftSlot, ShiftAssignment.slot_id == ShiftSlot.id)
+        .filter(
+            ShiftAssignment.member_id == member_id,
+            ShiftSlot.event_id == event_id,
+            ShiftSlot.date == slot_date,
+            ShiftSlot.start_time < end_t,
+            ShiftSlot.end_time > start_t,
+            ShiftSlot.id != slot.id,
+        ).first()
+    )
+    if overlap:
+        db.session.rollback()
+        return jsonify({'error': 'この時間帯には既に別のシフトが割り当て済みです。'}), 409
+
+    existing = ShiftAssignment.query.filter_by(slot_id=slot.id, member_id=member_id).first()
+    if not existing:
+        db.session.add(ShiftAssignment(slot_id=slot.id, member_id=member_id))
+
+    db.session.commit()
+    _invalidate_event_cache(event_id)
+    return jsonify(slot.to_dict()), 201
+
+
+@admin_bp.route('/api/events/<int:event_id>/slot-with-assignment/replace', methods=['POST'])
+@login_required
+@limiter.limit("60 per minute")
+def api_replace_slot_with_assignment(event_id):
+    """既存スロット＋割り当てを削除して新スロット＋割り当てを1トランザクションで作成（編集: 4往復→1往復）"""
+    _can_access_event(event_id)
+    data = request.get_json() or {}
+
+    old_assignment_id = data.get('old_assignment_id')
+    old_slot_id       = data.get('old_slot_id')
+
+    try:
+        slot_date = date.fromisoformat(data['date'])
+        sp = data['start_time'].split(':')
+        ep = data['end_time'].split(':')
+        start_t = time_type(int(sp[0]), int(sp[1]))
+        end_t   = time_type(int(ep[0]), int(ep[1]))
+    except (KeyError, ValueError):
+        return jsonify({'error': '日付・時間の形式が正しくありません。'}), 400
+
+    member_id = data.get('member_id')
+    member = EventMember.query.filter_by(id=member_id, event_id=event_id).first_or_404()
+
+    job_type_id = data.get('job_type_id')
+    if job_type_id:
+        job = JobType.query.get(job_type_id)
+        if job:
+            allowed = job.get_allowed_departments()
+            if allowed and member.department not in allowed:
+                return jsonify({'error': f'この仕事は {", ".join(allowed)} のメンバーのみ担当できます。'}), 400
+
+    # 旧データを削除
+    old_a = ShiftAssignment.query.get(old_assignment_id)
+    if old_a:
+        db.session.delete(old_a)
+    old_s = ShiftSlot.query.filter_by(id=old_slot_id, event_id=event_id).first()
+    if old_s:
+        db.session.delete(old_s)
+    db.session.flush()
+
+    # 新スロット作成（重複スロット再利用）
+    slot = ShiftSlot.query.filter_by(
+        event_id=event_id, date=slot_date,
+        start_time=start_t, end_time=end_t,
+        job_type_id=int(job_type_id) if job_type_id else None,
+    ).first()
+    if not slot:
+        slot = ShiftSlot(
+            event_id=event_id,
+            job_type_id=int(job_type_id) if job_type_id else None,
+            date=slot_date, start_time=start_t, end_time=end_t,
+            role=(data.get('role') or '').strip() or None,
+            location=(data.get('location') or '').strip() or None,
+            required_count=int(data.get('required_count', 1)),
+        )
+        db.session.add(slot)
+        db.session.flush()
+
+    # 時間帯重複チェック
+    overlap = (
+        db.session.query(ShiftAssignment)
+        .join(ShiftSlot, ShiftAssignment.slot_id == ShiftSlot.id)
+        .filter(
+            ShiftAssignment.member_id == member_id,
+            ShiftSlot.event_id == event_id,
+            ShiftSlot.date == slot_date,
+            ShiftSlot.start_time < end_t,
+            ShiftSlot.end_time > start_t,
+            ShiftSlot.id != slot.id,
+        ).first()
+    )
+    if overlap:
+        db.session.rollback()
+        return jsonify({'error': 'この時間帯には既に別のシフトが割り当て済みです。'}), 409
+
+    existing = ShiftAssignment.query.filter_by(slot_id=slot.id, member_id=member_id).first()
+    if not existing:
+        db.session.add(ShiftAssignment(slot_id=slot.id, member_id=member_id))
+
+    db.session.commit()
+    _invalidate_event_cache(event_id)
+    return jsonify(slot.to_dict()), 201
+
+
 @admin_bp.route('/api/events/<int:event_id>/slots/<int:slot_id>', methods=['DELETE'])
 @login_required
 def api_delete_slot(event_id, slot_id):
