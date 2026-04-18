@@ -36,6 +36,7 @@ function hexToRgba(hex, alpha) {
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let myShifts = [];
+let currentMyDay = null; // 選択中の日付 (YYYY-MM-DD)
 
 // ─── localStorage キャッシュ ───────────────────────────────────────────────────
 const _LS_KEY = `cs_myshifts_${EVENT_ID}_${MY_MEMBER_ID}`;
@@ -79,127 +80,158 @@ async function loadMyShifts() {
   }
 }
 
-function renderMyShifts() {
+// ─── 日付タブ ─────────────────────────────────────────────────────────────────
+function renderMyShiftDayTabs(dates) {
+  const bar = $('my-shift-day-tabs');
+  if (!bar) return;
+
+  bar.innerHTML = dates.map(d => {
+    const dt = new Date(d + 'T00:00:00');
+    const mmdd = dt.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' });
+    const wd   = dt.toLocaleDateString('ja-JP', { weekday: 'short' });
+    const customLabel = (typeof DAY_LABELS !== 'undefined' && DAY_LABELS[d]) || '';
+    const active = d === currentMyDay;
+    const count  = myShifts.filter(s => s.date === d).length;
+
+    const inner = customLabel
+      ? `<span class="flex flex-col items-center leading-tight gap-px">
+           <span class="font-bold">${customLabel}</span>
+           <span class="text-[9px] ${active ? 'opacity-70' : 'text-gray-400'}">${mmdd}(${wd})</span>
+         </span>`
+      : `<span class="flex flex-col items-center leading-tight gap-px">
+           <span>${mmdd}</span>
+           <span class="text-[9px] ${active ? 'opacity-70' : 'text-gray-400'}">${wd}</span>
+         </span>`;
+
+    return `<button class="my-day-tab flex-shrink-0 flex flex-col items-center px-3 py-1.5 rounded-xl text-xs font-medium transition-colors relative
+      ${active
+        ? 'bg-primary text-white shadow-sm'
+        : 'text-gray-600 hover:bg-surface border border-transparent hover:border-gray-200'}"
+      data-date="${d}">
+      ${inner}
+      ${count > 0
+        ? `<span class="absolute -top-0.5 -right-0.5 w-4 h-4 flex items-center justify-center rounded-full text-[9px] font-bold
+            ${active ? 'bg-white text-primary' : 'bg-primary text-white'}">${count}</span>`
+        : ''}
+    </button>`;
+  }).join('');
+
+  bar.querySelectorAll('.my-day-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      currentMyDay = btn.dataset.date;
+      renderMyShiftDayTabs(dates);
+      renderMyShiftContent();
+      // タブをスクロールして見えるようにする
+      btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    });
+  });
+}
+
+function renderMyShiftContent() {
   const list = $('my-shifts-list');
-  if (!myShifts.length) {
+  const label = $('my-shift-day-label');
+  const dayShiftsAll = myShifts.filter(s => s.date === currentMyDay);
+  const sorted = [...dayShiftsAll].sort((a, b) => a.start_time.localeCompare(b.start_time));
+
+  // ヘッダーラベルを更新
+  if (label) label.textContent = currentMyDay ? fmtDate(currentMyDay) : '';
+
+  if (!sorted.length) {
     list.innerHTML = `
       <div class="text-center py-14">
-        <div class="w-14 h-14 bg-surface rounded-2xl flex items-center justify-center mx-auto mb-3">
-          <svg class="w-7 h-7 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-          </svg>
-        </div>
-        <p class="text-gray-400 text-sm">割り当てられたシフトはありません</p>
+        <p class="text-gray-400 text-sm">この日のシフトはありません</p>
       </div>`;
     return;
   }
 
-  // 日付でグループ化
-  const byDate = {};
-  myShifts.forEach(s => (byDate[s.date] = byDate[s.date] || []).push(s));
+  // タイムライン構築（シフト前後・間を休憩として挿入）
+  const items = [];
+  const DAY_START = '08:00';
+  const DAY_END   = '22:00';
+  let cursor = DAY_START;
 
-  list.innerHTML = Object.entries(byDate).sort(([a], [b]) => a.localeCompare(b)).map(([date, dayShifts]) => {
-    const sorted = [...dayShifts].sort((a, b) => a.start_time.localeCompare(b.start_time));
+  sorted.forEach(s => {
+    if (cursor < s.start_time) items.push({ type: 'break', from: cursor, to: s.start_time });
+    items.push({ type: 'shift', shift: s });
+    cursor = s.end_time;
+  });
+  if (cursor < DAY_END) items.push({ type: 'break', from: cursor, to: DAY_END });
 
-    // タイムラインアイテムを構築（シフト前後・間の全空き時間を休憩として挿入）
-    const items = [];
-    const DAY_START = '08:00';
-    const DAY_END   = '22:00';
-    let cursor = DAY_START;
-
-    sorted.forEach(s => {
-      if (cursor < s.start_time) {
-        items.push({ type: 'break', from: cursor, to: s.start_time });
-      }
-      items.push({ type: 'shift', shift: s });
-      cursor = s.end_time;
-    });
-
-    if (cursor < DAY_END) {
-      items.push({ type: 'break', from: cursor, to: DAY_END });
+  const timelineHtml = items.map(item => {
+    if (item.type === 'break') {
+      return `
+        <div class="flex items-center gap-3 px-4 py-1.5">
+          <div class="text-center" style="min-width:52px">
+            <div class="text-[10px] text-gray-400 leading-tight">${item.from}</div>
+            <div class="text-[10px] text-gray-300 leading-none">⋮</div>
+            <div class="text-[10px] text-gray-400 leading-tight">${item.to}</div>
+          </div>
+          <div class="flex-1 flex items-center gap-2">
+            <div class="flex-1 h-px bg-gray-100"></div>
+            <span class="text-[11px] text-gray-400 font-medium px-2.5 py-0.5 bg-gray-50 rounded-full border border-gray-100">休憩</span>
+            <div class="flex-1 h-px bg-gray-100"></div>
+          </div>
+        </div>`;
     }
 
-    const timelineHtml = items.map(item => {
-      if (item.type === 'break') {
-        return `
-          <div class="flex items-center gap-3 px-4 py-1.5">
-            <div class="text-center" style="min-width:52px">
-              <div class="text-[10px] text-gray-400 leading-tight">${item.from}</div>
-              <div class="text-[10px] text-gray-300 leading-none">⋮</div>
-              <div class="text-[10px] text-gray-400 leading-tight">${item.to}</div>
-            </div>
-            <div class="flex-1 flex items-center gap-2">
-              <div class="flex-1 h-px bg-gray-100"></div>
-              <span class="text-[11px] text-gray-400 font-medium px-2.5 py-0.5 bg-gray-50 rounded-full border border-gray-100">休憩</span>
-              <div class="flex-1 h-px bg-gray-100"></div>
-            </div>
-          </div>`;
-      }
-
-      const s = item.shift;
-      const color = s.job_color || '#4DA3FF';
-      const colleaguesHtml = (s.colleagues && s.colleagues.length)
-        ? `<div class="mt-2 space-y-1">
-            <div class="text-[10px] text-gray-400 font-medium mb-1">同じシフトのメンバー</div>
-            ${s.colleagues.map(c => `
-              <div class="flex items-center gap-2 py-1 px-2 bg-gray-50 rounded-lg">
-                <div class="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <span class="text-[10px] font-bold text-primary">${c.name[0]}</span>
-                </div>
-                <div class="flex-1 min-w-0">
-                  <span class="text-xs font-medium text-gray-800">${c.name}</span>
-                  ${c.department ? `<span class="text-[10px] text-gray-400 ml-1">${c.department}</span>` : ''}
-                </div>
-                <button class="partner-absent-btn flex-shrink-0 text-[10px] font-medium px-2 py-1 rounded-md border transition-colors
-                  ${c.status === 'absent' ? 'bg-red-500 text-white border-red-500' : 'bg-white text-red-400 border-red-200 hover:bg-red-50'}"
-                  data-slot="${s.slot_id}" data-member="${c.member_id}" data-name="${c.name}">
-                  ${c.status === 'absent' ? '報告済み' : 'いない'}
-                </button>
-              </div>`).join('')}
-          </div>`
-        : '';
-      return `
-        <div class="px-4 py-3">
-          <button class="my-shift-card w-full text-left flex items-center gap-3 hover:bg-gray-50 active:bg-gray-100 transition-colors rounded-xl px-2 py-1.5"
-            data-slot="${s.slot_id}">
-            <div class="w-1 self-stretch rounded-full flex-shrink-0" style="background:${color}"></div>
-            <div class="text-center flex-shrink-0" style="min-width:48px">
-              <div class="text-sm font-bold" style="color:${color}">${s.start_time}</div>
-              <div class="text-[11px] text-gray-400">${s.end_time}</div>
-            </div>
-            <div class="flex-1 min-w-0">
-              <div class="text-sm font-semibold text-gray-900">${s.role || '（役割未設定）'}</div>
-              ${s.location ? `
-                <div class="flex items-center gap-1 mt-0.5">
-                  <svg class="w-3 h-3 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                      d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
-                  </svg>
-                  <span class="text-xs text-gray-400 truncate">${s.location}</span>
-                </div>` : ''}
-            </div>
-            <div class="flex-shrink-0">
-              <span class="text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLOR[s.status] || STATUS_COLOR.scheduled}">
-                ${STATUS_LABEL[s.status] || s.status}
-              </span>
-            </div>
-          </button>
-          ${colleaguesHtml}
-        </div>`;
-    }).join('<div class="border-t border-gray-50 mx-4 my-0"></div>');
+    const s = item.shift;
+    const color = s.job_color || '#4DA3FF';
+    const colleaguesHtml = (s.colleagues && s.colleagues.length)
+      ? `<div class="mt-2 space-y-1">
+          <div class="text-[10px] text-gray-400 font-medium mb-1">同じシフトのメンバー</div>
+          ${s.colleagues.map(c => `
+            <div class="flex items-center gap-2 py-1 px-2 bg-gray-50 rounded-lg">
+              <div class="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <span class="text-[10px] font-bold text-primary">${c.name[0]}</span>
+              </div>
+              <div class="flex-1 min-w-0">
+                <span class="text-xs font-medium text-gray-800">${c.name}</span>
+                ${c.department ? `<span class="text-[10px] text-gray-400 ml-1">${c.department}</span>` : ''}
+              </div>
+              <button class="partner-absent-btn flex-shrink-0 text-[10px] font-medium px-2 py-1 rounded-md border transition-colors
+                ${c.status === 'absent' ? 'bg-red-500 text-white border-red-500' : 'bg-white text-red-400 border-red-200 hover:bg-red-50'}"
+                data-slot="${s.slot_id}" data-member="${c.member_id}" data-name="${c.name}">
+                ${c.status === 'absent' ? '報告済み' : 'いない'}
+              </button>
+            </div>`).join('')}
+        </div>`
+      : '';
 
     return `
-      <div class="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
-        <div class="px-4 py-2.5 bg-surface border-b border-gray-100 flex items-center gap-2">
-          <div class="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0"></div>
-          <span class="text-sm font-bold text-gray-800">${fmtDate(date)}</span>
-          <span class="text-xs text-gray-400 ml-auto">${sorted.length}シフト</span>
-        </div>
-        ${timelineHtml}
+      <div class="px-4 py-3">
+        <button class="my-shift-card w-full text-left flex items-center gap-3 hover:bg-gray-50 active:bg-gray-100 transition-colors rounded-xl px-2 py-1.5"
+          data-slot="${s.slot_id}">
+          <div class="w-1 self-stretch rounded-full flex-shrink-0" style="background:${color}"></div>
+          <div class="text-center flex-shrink-0" style="min-width:48px">
+            <div class="text-sm font-bold" style="color:${color}">${s.start_time}</div>
+            <div class="text-[11px] text-gray-400">${s.end_time}</div>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-semibold text-gray-900">${s.role || '（役割未設定）'}</div>
+            ${s.location ? `
+              <div class="flex items-center gap-1 mt-0.5">
+                <svg class="w-3 h-3 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                </svg>
+                <span class="text-xs text-gray-400 truncate">${s.location}</span>
+              </div>` : ''}
+          </div>
+          <div class="flex-shrink-0">
+            <span class="text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLOR[s.status] || STATUS_COLOR.scheduled}">
+              ${STATUS_LABEL[s.status] || s.status}
+            </span>
+          </div>
+        </button>
+        ${colleaguesHtml}
       </div>`;
-  }).join('');
+  }).join('<div class="border-t border-gray-50 mx-4"></div>');
+
+  list.innerHTML = `
+    <div class="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+      ${timelineHtml}
+    </div>`;
 
   // クリックでシフト詳細モーダルを開く
   list.querySelectorAll('.my-shift-card').forEach(card => {
@@ -224,6 +256,40 @@ function renderMyShifts() {
   });
 }
 
+function renderMyShifts() {
+  const list = $('my-shifts-list');
+  const bar  = $('my-shift-day-tabs');
+
+  if (!myShifts.length) {
+    if (bar) bar.innerHTML = '';
+    const label = $('my-shift-day-label');
+    if (label) label.textContent = '';
+    list.innerHTML = `
+      <div class="text-center py-14">
+        <div class="w-14 h-14 bg-surface rounded-2xl flex items-center justify-center mx-auto mb-3">
+          <svg class="w-7 h-7 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+          </svg>
+        </div>
+        <p class="text-gray-400 text-sm">割り当てられたシフトはありません</p>
+      </div>`;
+    return;
+  }
+
+  // シフトがある日付を昇順で列挙
+  const dates = [...new Set(myShifts.map(s => s.date))].sort();
+
+  // 今日に近い日付を初期選択（未選択 or 存在しない日付なら先頭）
+  if (!currentMyDay || !dates.includes(currentMyDay)) {
+    const today = new Date().toISOString().slice(0, 10);
+    currentMyDay = dates.find(d => d >= today) || dates[0];
+  }
+
+  renderMyShiftDayTabs(dates);
+  renderMyShiftContent();
+}
+
 // ── 欠席確認モーダル ──────────────────────────────────────────────────────────
 let _absentConfirmCallback = null;
 
@@ -245,7 +311,7 @@ function showAbsentConfirm(name, slotId, memberId) {
         if (col) col.status = 'absent';
       }
       _lsSet(myShifts);
-      renderMyShifts();
+      renderMyShiftContent();
       showReportToast('partner');
     } catch {
       alert('送信に失敗しました。');

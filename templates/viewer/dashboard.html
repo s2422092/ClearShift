@@ -39,9 +39,16 @@
 
   <!-- ── マイシフト ── -->
   <div id="vtab-mine">
-    <div class="max-w-2xl mx-auto px-4 py-5">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="text-base font-semibold text-gray-800">あなたのシフト</h2>
+    <!-- 日付タブバー -->
+    <div class="sticky top-14 z-20 bg-white border-b border-gray-100">
+      <div class="max-w-2xl mx-auto">
+        <div id="my-shift-day-tabs" class="flex gap-1 overflow-x-auto px-3 py-2 scrollbar-none"></div>
+      </div>
+    </div>
+
+    <div class="max-w-2xl mx-auto px-4 py-4">
+      <div class="flex items-center justify-between mb-3">
+        <div id="my-shift-day-label" class="text-sm font-semibold text-gray-800"></div>
         <button id="btn-download-myshift-pdf"
           class="flex items-center gap-1 px-2.5 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -51,7 +58,7 @@
           PDF
         </button>
       </div>
-      <div id="my-shifts-list" class="space-y-4">
+      <div id="my-shifts-list" class="space-y-3">
         <div class="text-center py-10 text-gray-400 text-sm">読み込み中...</div>
       </div>
     </div>

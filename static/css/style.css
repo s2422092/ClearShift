@@ -16,6 +16,14 @@
   background: #9ca3af;
 }
 
+/* スクロールバー非表示ユーティリティ */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 /* トランジション */
 * {
   box-sizing: border-box;
