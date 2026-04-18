@@ -5,11 +5,8 @@
       "use": "@vercel/python"
     }
   ],
-  "crons": [
-    {
-      "path": "/api/cron/warmup",
-      "schedule": "*/5 * * * *"
-    }
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api/index.py" }
   ],
   "headers": [
     {
@@ -28,10 +25,10 @@
       ]
     }
   ],
-  "routes": [
+  "crons": [
     {
-      "src": "/(.*)",
-      "dest": "/api/index.py"
+      "path": "/api/cron/warmup",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

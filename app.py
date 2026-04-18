@@ -112,12 +112,12 @@ def create_app():
     def shutdown_session(exception=None):
         db.session.remove()
 
-    # Vercel サーバーレス環境では複数インスタンスが同時起動するため
-    # ALTER TABLE / CREATE INDEX を起動時に実行するとデッドロックが発生する。
-    # スキーマは schema.sql で事前に適用済みのため、ここでは db.create_all() のみ実行する。
-    # ローカル開発環境（VERCEL 未設定）でも同様に schema.sql を使うこと。
-    with app.app_context():
-        db.create_all()
+    # ローカル開発時のみ db.create_all() を実行する。
+    # Vercel（サーバーレス）では毎回 DB 接続が発生して冷間起動が遅くなるためスキップ。
+    # Vercel 本番では schema.sql を Supabase に直接適用してスキーマを管理する。
+    if not os.environ.get('VERCEL'):
+        with app.app_context():
+            db.create_all()
 
     return app
 
