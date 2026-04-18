@@ -1,10 +1,15 @@
 from flask import Blueprint, render_template, redirect, url_for, request, jsonify, session
 from models import db, Event, EventMember, ShiftSlot, ShiftAssignment, Availability, JobType
+from sqlalchemy.orm import joinedload
 from datetime import date, datetime
+from extensions import cache
 
 viewer_bp = Blueprint('viewer', __name__)
 
 VIEWER_SESSION_KEY = 'viewer_member_id'
+
+# キャッシュ TTL（秒）
+_CACHE_TTL = 300  # 5分
 
 
 def get_current_viewer(event_id):
@@ -23,7 +28,6 @@ def login(event_id):
         if not identifier:
             return render_template('viewer/login.html', event=event, error='名前またはメールアドレスを入力してください。')
 
-        # 名前またはメールで検索
         member = EventMember.query.filter_by(event_id=event_id).filter(
             (EventMember.name == identifier) |
             (EventMember.email == identifier.lower())
@@ -57,24 +61,38 @@ def dashboard(event_id):
 
 @viewer_bp.route('/event/<int:event_id>/api/my-shifts')
 def api_my_shifts(event_id):
-    event = Event.query.get_or_404(event_id)
+    Event.query.get_or_404(event_id)
     member = get_current_viewer(event_id)
     if not member:
         return jsonify({'error': 'ログインしてください。'}), 401
 
-    assignments = ShiftAssignment.query.filter_by(member_id=member.id).join(ShiftSlot).filter(
-        ShiftSlot.event_id == event_id
-    ).order_by(ShiftSlot.date, ShiftSlot.start_time).all()
+    cache_key = f'viewer_my_shifts_{event_id}_{member.id}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
 
+    # joinedload で N+1 を排除: assignments → slot → slot.assignments を一括取得
+    assignments = (
+        ShiftAssignment.query
+        .filter_by(member_id=member.id)
+        .join(ShiftSlot)
+        .filter(ShiftSlot.event_id == event_id)
+        .options(
+            joinedload(ShiftAssignment.slot)
+            .joinedload(ShiftSlot.assignments)
+        )
+        .order_by(ShiftSlot.date, ShiftSlot.start_time)
+        .all()
+    )
+
+    # jobs と members を一括取得してループ内の個別クエリを回避
     jobs = {j.id: j for j in JobType.query.filter_by(event_id=event_id).all()}
-    # 同じスロットの同僚取得用に全メンバーをキャッシュ（N+1クエリを防ぐ）
     all_members = {m.id: m for m in EventMember.query.filter_by(event_id=event_id).all()}
 
     result = []
     for a in assignments:
         slot = a.slot
         job = jobs.get(slot.job_type_id)
-        # 同じスロットに入っている他のメンバー
         colleagues = []
         for other_a in slot.assignments:
             if other_a.member_id != member.id:
@@ -100,59 +118,117 @@ def api_my_shifts(event_id):
             'job_description': job.description if job else None,
             'colleagues': colleagues,
         })
+
+    cache.set(cache_key, result, timeout=_CACHE_TTL)
     return jsonify(result)
 
 
 @viewer_bp.route('/event/<int:event_id>/api/all-shifts')
 def api_all_shifts(event_id):
-    event = Event.query.get_or_404(event_id)
+    """
+    ?date=YYYY-MM-DD を渡すと1日分のみ返す（高速・推奨）。
+    date 未指定時は全日程を返す（後方互換）。
+    """
+    Event.query.get_or_404(event_id)
     member = get_current_viewer(event_id)
     if not member:
         return jsonify({'error': 'ログインしてください。'}), 401
 
-    slots = ShiftSlot.query.filter_by(event_id=event_id).order_by(ShiftSlot.date, ShiftSlot.start_time).all()
+    date_str = request.args.get('date')
+
+    # date 指定あり → 1日分のみ（キャッシュキーに日付を含める）
+    cache_key = f'viewer_shifts_{event_id}_{date_str}' if date_str else f'viewer_shifts_{event_id}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
+
+    # クエリ: date 指定があればその日だけ取得（DB転送量を大幅削減）
+    query = (
+        ShiftSlot.query
+        .filter_by(event_id=event_id)
+        .options(joinedload(ShiftSlot.assignments))
+        .order_by(ShiftSlot.date, ShiftSlot.start_time)
+    )
+    if date_str:
+        try:
+            query = query.filter(ShiftSlot.date == date.fromisoformat(date_str))
+        except ValueError:
+            return jsonify({'error': '日付の形式が正しくありません。'}), 400
+
+    slots = query.all()
     jobs = {j.id: j for j in JobType.query.filter_by(event_id=event_id).all()}
     members = {m.id: m for m in EventMember.query.filter_by(event_id=event_id).all()}
 
     result = []
     for s in slots:
         job = jobs.get(s.job_type_id)
-        d = s.to_dict()
-        d['job_color'] = job.color if job else '#4DA3FF'
-        d['assignments'] = [{
-            'member_id': a.member_id,
-            'member_name': members[a.member_id].name if a.member_id in members else '',
-            'member_department': members[a.member_id].department if a.member_id in members else '',
-            'is_leader': members[a.member_id].is_leader if a.member_id in members else False,
-            'status': a.status,
-        } for a in s.assignments]
-        result.append(d)
+        result.append({
+            'id': s.id,
+            'event_id': s.event_id,
+            'job_type_id': s.job_type_id,
+            'date': s.date.isoformat(),
+            'start_time': s.start_time.strftime('%H:%M'),
+            'end_time': s.end_time.strftime('%H:%M'),
+            'role': s.role,
+            'location': s.location,
+            'required_count': s.required_count,
+            'note': s.note,
+            'job_color': job.color if job else '#4DA3FF',
+            'assignments': [
+                {
+                    'member_id': a.member_id,
+                    'member_name': members[a.member_id].name if a.member_id in members else '',
+                    'member_department': members[a.member_id].department if a.member_id in members else '',
+                    'is_leader': members[a.member_id].is_leader if a.member_id in members else False,
+                    'status': a.status,
+                }
+                for a in s.assignments
+            ],
+        })
+
+    cache.set(cache_key, result, timeout=_CACHE_TTL)
     return jsonify(result)
 
 
 @viewer_bp.route('/event/<int:event_id>/api/members')
 def api_viewer_members(event_id):
-    event = Event.query.get_or_404(event_id)
+    Event.query.get_or_404(event_id)
     member = get_current_viewer(event_id)
     if not member:
         return jsonify({'error': 'ログインしてください。'}), 401
+
+    cache_key = f'viewer_members_{event_id}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
+
     members = EventMember.query.filter_by(event_id=event_id).all()
-    return jsonify([m.to_dict() for m in members])
+    result = [m.to_dict() for m in members]
+    cache.set(cache_key, result, timeout=_CACHE_TTL)
+    return jsonify(result)
 
 
 @viewer_bp.route('/event/<int:event_id>/api/jobs')
 def api_viewer_jobs(event_id):
-    event = Event.query.get_or_404(event_id)
+    Event.query.get_or_404(event_id)
     member = get_current_viewer(event_id)
     if not member:
         return jsonify({'error': 'ログインしてください。'}), 401
+
+    cache_key = f'viewer_jobs_{event_id}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
+
     jobs = JobType.query.filter_by(event_id=event_id).all()
-    return jsonify([j.to_dict() for j in jobs])
+    result = [j.to_dict() for j in jobs]
+    cache.set(cache_key, result, timeout=_CACHE_TTL)
+    return jsonify(result)
 
 
 @viewer_bp.route('/event/<int:event_id>/api/availability', methods=['GET'])
 def api_get_availability(event_id):
-    event = Event.query.get_or_404(event_id)
+    Event.query.get_or_404(event_id)
     member = get_current_viewer(event_id)
     if not member:
         return jsonify({'error': 'ログインしてください。'}), 401
@@ -163,13 +239,13 @@ def api_get_availability(event_id):
 
 @viewer_bp.route('/event/<int:event_id>/api/availability', methods=['POST'])
 def api_submit_availability(event_id):
-    event = Event.query.get_or_404(event_id)
+    Event.query.get_or_404(event_id)
     member = get_current_viewer(event_id)
     if not member:
         return jsonify({'error': 'ログインしてください。'}), 401
 
     data = request.get_json()
-    availabilities = data.get('availabilities', [])  # [{date, available, note}]
+    availabilities = data.get('availabilities', [])
 
     for item in availabilities:
         avail_date = date.fromisoformat(item['date'])
@@ -178,13 +254,12 @@ def api_submit_availability(event_id):
             existing.available = item.get('available', True)
             existing.note = item.get('note', '')
         else:
-            avail = Availability(
+            db.session.add(Availability(
                 member_id=member.id,
                 date=avail_date,
                 available=item.get('available', True),
                 note=item.get('note', ''),
-            )
-            db.session.add(avail)
+            ))
 
     db.session.commit()
     return jsonify({'ok': True})
@@ -192,7 +267,7 @@ def api_submit_availability(event_id):
 
 @viewer_bp.route('/event/<int:event_id>/api/report-status', methods=['POST'])
 def api_report_status(event_id):
-    event = Event.query.get_or_404(event_id)
+    Event.query.get_or_404(event_id)
     member = get_current_viewer(event_id)
     if not member:
         return jsonify({'error': 'ログインしてください。'}), 401
@@ -213,13 +288,18 @@ def api_report_status(event_id):
     assignment.note = note
     assignment.reported_at = datetime.utcnow() if status in ('absent', 'late') else None
     db.session.commit()
+
+    # ステータス変更時はビューアーキャッシュを無効化
+    cache.delete(f'viewer_my_shifts_{event_id}_{member.id}')
+    cache.delete(f'viewer_shifts_{event_id}')
+
     return jsonify({'ok': True, 'status': status})
 
 
 @viewer_bp.route('/event/<int:event_id>/api/report-partner-absent', methods=['POST'])
 def api_report_partner_absent(event_id):
     """現場にいるメンバーが、同じシフトのペアが来ていないことを報告する"""
-    event = Event.query.get_or_404(event_id)
+    Event.query.get_or_404(event_id)
     reporter = get_current_viewer(event_id)
     if not reporter:
         return jsonify({'error': 'ログインしてください。'}), 401
@@ -228,14 +308,12 @@ def api_report_partner_absent(event_id):
     slot_id = data.get('slot_id')
     target_member_id = data.get('member_id')
 
-    # 報告者が該当スロットにいることを確認
     reporter_assignment = ShiftAssignment.query.filter_by(
         slot_id=slot_id, member_id=reporter.id
     ).first()
     if not reporter_assignment:
         return jsonify({'error': '報告者がこのシフトに割り当てられていません。'}), 403
 
-    # 対象メンバーの割り当てを取得
     target_assignment = ShiftAssignment.query.filter_by(
         slot_id=slot_id, member_id=target_member_id
     ).first()
@@ -246,4 +324,9 @@ def api_report_partner_absent(event_id):
     target_assignment.reported_at = datetime.utcnow()
     target_assignment.note = f'{reporter.name} が報告'
     db.session.commit()
+
+    # ステータス変更時はビューアーキャッシュを無効化
+    cache.delete(f'viewer_my_shifts_{event_id}_{target_member_id}')
+    cache.delete(f'viewer_shifts_{event_id}')
+
     return jsonify({'ok': True})

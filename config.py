@@ -41,7 +41,7 @@ def _engine_options():
             'poolclass': NullPool,
             'connect_args': {
                 'sslmode': 'require',   # Supabase は SSL 必須
-                'connect_timeout': 10,
+                'connect_timeout': 5,   # Vercel 10秒タイムアウトの半分以内に収める
             },
         }
     return {
@@ -70,7 +70,7 @@ class Config:
         CACHE_REDIS_URL = _redis_url
     else:
         CACHE_TYPE = 'SimpleCache'   # ローカル開発用フォールバック
-    CACHE_DEFAULT_TIMEOUT = 60       # デフォルト60秒
+    CACHE_DEFAULT_TIMEOUT = 300      # 5分キャッシュ（Redisコマンド数を削減）
 
     COMPRESS_MIMETYPES = [
         'text/html', 'text/css', 'text/javascript',

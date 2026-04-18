@@ -130,10 +130,32 @@ CREATE TABLE IF NOT EXISTS availabilities (
 -- =============================================================================
 -- インデックス（低速回線でも高速にレスポンスを返すためのクエリ最適化）
 -- =============================================================================
-CREATE INDEX IF NOT EXISTS idx_shift_slots_event_date   ON shift_slots      (event_id, date);
-CREATE INDEX IF NOT EXISTS idx_shift_assignments_slot   ON shift_assignments (slot_id);
-CREATE INDEX IF NOT EXISTS idx_shift_assignments_member ON shift_assignments (member_id);
-CREATE INDEX IF NOT EXISTS idx_event_members_event      ON event_members     (event_id);
-CREATE INDEX IF NOT EXISTS idx_availabilities_member    ON availabilities    (member_id);
-CREATE INDEX IF NOT EXISTS idx_shift_absences_event     ON shift_absences    (event_id);
-CREATE INDEX IF NOT EXISTS idx_job_types_event          ON job_types         (event_id);
+
+-- シフト枠：イベント+日付での絞り込み（管理画面・ビューアー共通の最重要クエリ）
+CREATE INDEX IF NOT EXISTS idx_shift_slots_event_date    ON shift_slots      (event_id, date);
+-- シフト枠：イベント単体での全件取得（shift-data エンドポイント）
+CREATE INDEX IF NOT EXISTS idx_shift_slots_event_id      ON shift_slots      (event_id);
+
+-- シフト割り当て：スロットへの JOIN（最も頻繁に使われる結合）
+CREATE INDEX IF NOT EXISTS idx_shift_assignments_slot    ON shift_assignments (slot_id);
+-- シフト割り当て：メンバーのシフト一覧取得（ビューアーの my-shifts）
+CREATE INDEX IF NOT EXISTS idx_shift_assignments_member  ON shift_assignments (member_id);
+-- シフト割り当て：スロット+メンバーの複合（重複チェック・idempotent 処理）
+CREATE UNIQUE INDEX IF NOT EXISTS idx_shift_assignments_slot_member ON shift_assignments (slot_id, member_id);
+
+-- メンバー：イベント所属検索
+CREATE INDEX IF NOT EXISTS idx_event_members_event       ON event_members     (event_id);
+-- メンバー：名前・メールでのビューアーログイン検索
+CREATE INDEX IF NOT EXISTS idx_event_members_name        ON event_members     (event_id, name);
+CREATE INDEX IF NOT EXISTS idx_event_members_email       ON event_members     (event_id, email);
+
+-- 仕事定義：イベント所属検索
+CREATE INDEX IF NOT EXISTS idx_job_types_event           ON job_types         (event_id);
+
+-- 参加希望：メンバー+日付での絞り込み
+CREATE INDEX IF NOT EXISTS idx_availabilities_member     ON availabilities    (member_id);
+CREATE INDEX IF NOT EXISTS idx_availabilities_member_date ON availabilities   (member_id, date);
+
+-- 欠席マーク：イベント・日付での絞り込み
+CREATE INDEX IF NOT EXISTS idx_shift_absences_event      ON shift_absences    (event_id);
+CREATE INDEX IF NOT EXISTS idx_shift_absences_event_date ON shift_absences    (event_id, date);

@@ -392,17 +392,26 @@ $('btn-shift-detail-close').addEventListener('click', () => $('modal-shift-detai
 $('shift-detail-overlay').addEventListener('click',  () => $('modal-shift-detail').classList.add('hidden'));
 
 // ─── All Shifts Board ─────────────────────────────────────────────────────────
+
+// 日付別スロットキャッシュ（同じ日を再表示するときに再フェッチしない）
+const _slotCacheByDate = {};
+
 async function loadAllShifts() {
   const board = $('all-shifts-board');
   try {
-    [allSlots, allMembers] = await Promise.all([
-      apiFetch(`/event/${EVENT_ID}/api/all-shifts`),
-      apiFetch(`/event/${EVENT_ID}/api/members`),
-    ]);
     viewerEventDates = generateEventDates(EVENT_START, EVENT_END);
     if (!viewerCurrentDay || !viewerEventDates.includes(viewerCurrentDay)) {
       viewerCurrentDay = viewerEventDates[0] || null;
     }
+
+    // メンバー一覧は初回のみ取得（変更頻度が低い）
+    if (!allMembers.length) {
+      allMembers = await apiFetch(`/event/${EVENT_ID}/api/members`);
+    }
+
+    // 選択日のスロットのみ取得（全日程の1/N）
+    await loadSlotsForDay(viewerCurrentDay);
+
     renderViewerDayTabs();
     renderViewerBoard();
     renderViewerWorkload();
@@ -411,14 +420,26 @@ async function loadAllShifts() {
   }
 }
 
+async function loadSlotsForDay(targetDate) {
+  if (!targetDate) return;
+  // 同じ日はメモリキャッシュから返す（タブを往復するたびにAPIを叩かない）
+  if (_slotCacheByDate[targetDate]) {
+    allSlots = _slotCacheByDate[targetDate];
+    return;
+  }
+  const data = await apiFetch(`/event/${EVENT_ID}/api/all-shifts?date=${targetDate}`);
+  _slotCacheByDate[targetDate] = data;
+  allSlots = data;
+}
+
 function renderViewerDayTabs() {
   const container = $('board-day-tabs');
   if (!container) return;
-  container.innerHTML = viewerEventDates.map(date => {
-    const d = new Date(date + 'T00:00:00');
-    const dateStr = d.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' });
-    const customLabel = (typeof DAY_LABELS !== 'undefined' && DAY_LABELS[date]) || '';
-    const active = date === viewerCurrentDay;
+  container.innerHTML = viewerEventDates.map(d => {
+    const dt = new Date(d + 'T00:00:00');
+    const dateStr = dt.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' });
+    const customLabel = (typeof DAY_LABELS !== 'undefined' && DAY_LABELS[d]) || '';
+    const active = d === viewerCurrentDay;
     const inner = customLabel
       ? `<span class="flex flex-col items-start leading-tight">
            <span>${customLabel}</span>
@@ -427,12 +448,21 @@ function renderViewerDayTabs() {
       : dateStr;
     return `<button class="viewer-day-tab flex-shrink-0 flex items-center px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors
       ${active ? 'bg-primary text-white' : 'text-gray-600 hover:bg-surface border border-transparent hover:border-gray-200'}"
-      data-date="${date}">${inner}</button>`;
+      data-date="${d}">${inner}</button>`;
   }).join('');
   container.querySelectorAll('.viewer-day-tab').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       viewerCurrentDay = btn.dataset.date;
       renderViewerDayTabs();
+      // その日のスロットをまだ取得していなければフェッチ
+      const board = $('all-shifts-board');
+      board.innerHTML = `<div class="p-10 text-center text-gray-400 text-sm">読み込み中…</div>`;
+      try {
+        await loadSlotsForDay(viewerCurrentDay);
+      } catch {
+        board.innerHTML = `<div class="p-10 text-center text-red-400 text-sm">データの取得に失敗しました</div>`;
+        return;
+      }
       renderViewerBoard();
       renderViewerWorkload();
     });

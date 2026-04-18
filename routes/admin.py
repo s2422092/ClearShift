@@ -31,8 +31,23 @@ def _user_events():
 
 
 def _invalidate_event_cache(event_id):
-    """シフトデータが変更されたときに該当イベントのキャッシュを削除する"""
+    """シフトデータが変更されたときに管理・ビューアー両方のキャッシュを削除する"""
     cache.delete(f'shift_data_{event_id}')
+    cache.delete(f'viewer_shifts_{event_id}')   # 全日程キャッシュ
+    cache.delete(f'viewer_members_{event_id}')
+    cache.delete(f'viewer_jobs_{event_id}')
+
+    # 日付別キャッシュ（viewer_shifts_{event_id}_YYYY-MM-DD）は
+    # 編集されたスロットの日付だけ削除するのが理想だが、
+    # 安全のためイベントの全日程分を削除する
+    from models import Event as _Event
+    event = _Event.query.get(event_id)
+    if event:
+        from datetime import timedelta
+        cur = event.start_date
+        while cur <= event.end_date:
+            cache.delete(f'viewer_shifts_{event_id}_{cur.isoformat()}')
+            cur += timedelta(days=1)
 
 
 def _can_access_event(event_id):
@@ -516,7 +531,7 @@ def api_shift_data(event_id):
         'jobs':     [j.to_dict() for j in jobs],
         'absences': [a.to_dict() for a in absences],
     }
-    cache.set(cache_key, data, timeout=60)
+    cache.set(cache_key, data, timeout=300)  # 5分キャッシュ（編集後は即無効化される）
     return jsonify(data)
 
 
