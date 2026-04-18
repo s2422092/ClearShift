@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, redirect, url_for, request, jsonify, session
 from models import db, Event, EventMember, ShiftSlot, ShiftAssignment, Availability, JobType
 from sqlalchemy.orm import joinedload
+from sqlalchemy import and_
 from datetime import date, datetime
 from extensions import cache
 
@@ -71,40 +72,47 @@ def api_my_shifts(event_id):
     if cached is not None:
         return jsonify(cached)
 
-    # joinedload で N+1 を排除: assignments → slot → slot.assignments を一括取得
+    # クエリ1: 自分のアサインメント + スロット（同僚はまだ取得しない）
     assignments = (
         ShiftAssignment.query
         .filter_by(member_id=member.id)
         .join(ShiftSlot)
         .filter(ShiftSlot.event_id == event_id)
-        .options(
-            joinedload(ShiftAssignment.slot)
-            .joinedload(ShiftSlot.assignments)
-        )
+        .options(joinedload(ShiftAssignment.slot))
         .order_by(ShiftSlot.date, ShiftSlot.start_time)
         .all()
     )
 
-    # jobs と members を一括取得してループ内の個別クエリを回避
+    slot_ids = [a.slot_id for a in assignments]
+
+    # クエリ2: ジョブタイプ（小テーブル）
     jobs = {j.id: j for j in JobType.query.filter_by(event_id=event_id).all()}
-    all_members = {m.id: m for m in EventMember.query.filter_by(event_id=event_id).all()}
+
+    # クエリ3: 自分のスロットに限定した同僚のみ取得（全330人ではなく関係者だけ）
+    colleagues_by_slot: dict = {}
+    if slot_ids:
+        colleague_rows = (
+            db.session.query(ShiftAssignment, EventMember)
+            .join(EventMember, ShiftAssignment.member_id == EventMember.id)
+            .filter(
+                ShiftAssignment.slot_id.in_(slot_ids),
+                ShiftAssignment.member_id != member.id,
+            )
+            .all()
+        )
+        for ca, cm in colleague_rows:
+            colleagues_by_slot.setdefault(ca.slot_id, []).append({
+                'member_id': cm.id,
+                'name': cm.name,
+                'department': cm.department,
+                'grade': cm.grade,
+                'status': ca.status,
+            })
 
     result = []
     for a in assignments:
         slot = a.slot
         job = jobs.get(slot.job_type_id)
-        colleagues = []
-        for other_a in slot.assignments:
-            if other_a.member_id != member.id:
-                m = all_members.get(other_a.member_id)
-                if m:
-                    colleagues.append({
-                        'member_id': m.id,
-                        'name': m.name,
-                        'department': m.department,
-                        'grade': m.grade,
-                        'status': other_a.status,
-                    })
         result.append({
             'slot_id': slot.id,
             'date': slot.date.isoformat(),
@@ -116,7 +124,7 @@ def api_my_shifts(event_id):
             'note': a.note,
             'job_color': job.color if job else '#4DA3FF',
             'job_description': job.description if job else None,
-            'colleagues': colleagues,
+            'colleagues': colleagues_by_slot.get(slot.id, []),
         })
 
     cache.set(cache_key, result, timeout=_CACHE_TTL)

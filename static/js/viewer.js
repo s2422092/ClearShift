@@ -37,14 +37,45 @@ function hexToRgba(hex, alpha) {
 // ─── State ────────────────────────────────────────────────────────────────────
 let myShifts = [];
 
+// ─── localStorage キャッシュ ───────────────────────────────────────────────────
+const _LS_KEY = `cs_myshifts_${EVENT_ID}_${MY_MEMBER_ID}`;
+const _LS_TTL = 5 * 60 * 1000; // 5分（サーバーキャッシュと合わせる）
+
+function _lsGet() {
+  try {
+    const raw = localStorage.getItem(_LS_KEY);
+    if (!raw) return null;
+    const { data, ts } = JSON.parse(raw);
+    return { data, fresh: Date.now() - ts < _LS_TTL };
+  } catch (_) { return null; }
+}
+
+function _lsSet(data) {
+  try { localStorage.setItem(_LS_KEY, JSON.stringify({ data, ts: Date.now() })); } catch (_) {}
+}
+
 // ─── My Shifts (タイムライン) ──────────────────────────────────────────────────
 async function loadMyShifts() {
   const list = $('my-shifts-list');
+
+  // キャッシュがあれば即表示（初回表示を高速化）
+  const cached = _lsGet();
+  if (cached) {
+    myShifts = cached.data;
+    renderMyShifts();
+    if (cached.fresh) return; // TTL内なら再フェッチしない
+  }
+
+  // キャッシュなし or TTL切れ → ネットワーク取得
   try {
-    myShifts = await apiFetch(`/event/${EVENT_ID}/api/my-shifts`);
+    const fresh = await apiFetch(`/event/${EVENT_ID}/api/my-shifts`);
+    _lsSet(fresh);
+    myShifts = fresh;
     renderMyShifts();
   } catch (err) {
-    list.innerHTML = `<div class="text-center py-10 text-red-400 text-sm">${err.message}</div>`;
+    if (!myShifts.length) {
+      list.innerHTML = `<div class="text-center py-10 text-red-400 text-sm">${err.message}</div>`;
+    }
   }
 }
 
@@ -213,6 +244,7 @@ function showAbsentConfirm(name, slotId, memberId) {
         const col = shift.colleagues.find(c => c.member_id === memberId);
         if (col) col.status = 'absent';
       }
+      _lsSet(myShifts);
       renderMyShifts();
       showReportToast('partner');
     } catch {
