@@ -64,15 +64,18 @@ async function loadMyShifts() {
   if (cached) {
     myShifts = cached.data;
     renderMyShifts();
-    if (cached.fresh) return; // TTL内なら再フェッチしない
   }
 
-  // キャッシュなし or TTL切れ → ネットワーク取得
+  // TTLに関わらず常にバックグラウンドで最新データを取得
+  // （管理者の編集が即時反映されるよう localStorage の skip ロジックを廃止）
   try {
     const fresh = await apiFetch(`/event/${EVENT_ID}/api/my-shifts`);
     _lsSet(fresh);
-    myShifts = fresh;
-    renderMyShifts();
+    // データが変わっていれば再描画
+    if (JSON.stringify(fresh) !== JSON.stringify(myShifts)) {
+      myShifts = fresh;
+      renderMyShifts();
+    }
   } catch (err) {
     if (!myShifts.length) {
       list.innerHTML = `<div class="text-center py-10 text-red-400 text-sm">${err.message}</div>`;

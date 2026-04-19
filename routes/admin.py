@@ -33,13 +33,20 @@ def _user_events():
 def _invalidate_event_cache(event_id):
     """シフトデータが変更されたときに管理・ビューアー両方のキャッシュを削除する"""
     cache.delete(f'shift_data_{event_id}')
-    cache.delete(f'viewer_shifts_{event_id}')   # 全日程キャッシュ
+    cache.delete(f'viewer_shifts_{event_id}')
     cache.delete(f'viewer_members_{event_id}')
     cache.delete(f'viewer_jobs_{event_id}')
 
-    # 日付別キャッシュ（viewer_shifts_{event_id}_YYYY-MM-DD）は
-    # 編集されたスロットの日付だけ削除するのが理想だが、
-    # 安全のためイベントの全日程分を削除する
+    # メンバー個別の my_shifts キャッシュを全員分削除
+    # （管理者の編集が閲覧者に即時反映されるよう）
+    member_ids = [
+        row[0] for row in
+        db.session.query(EventMember.id).filter_by(event_id=event_id).all()
+    ]
+    for mid in member_ids:
+        cache.delete(f'viewer_my_shifts_{event_id}_{mid}')
+
+    # 日付別キャッシュも全日程分削除
     from models import Event as _Event
     event = _Event.query.get(event_id)
     if event:
