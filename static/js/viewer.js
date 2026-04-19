@@ -434,37 +434,30 @@ $('shift-detail-overlay').addEventListener('click',  () => $('modal-shift-detail
 
 // 通常用（マイシフトなど縦スクロールのみの要素）
 async function captureAsPDF(targetEl, filename, landscape) {
-  const fullW = targetEl.scrollWidth;
-  const fullH = targetEl.scrollHeight;
   const canvas = await html2canvas(targetEl, {
-    scale: 1.5,
+    scale: 1,
     useCORS: true,
     backgroundColor: '#ffffff',
-    width: fullW,
-    height: fullH,
-    windowWidth: fullW,
-    windowHeight: fullH,
-    scrollX: 0,
-    scrollY: 0,
+    logging: false,
   });
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF({ orientation: landscape ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' });
   const pageW = pdf.internal.pageSize.getWidth();
   const pageH = pdf.internal.pageSize.getHeight();
-  const pxPerMm = (96 * 1.5) / 25.4;
+  const pxPerMm = 96 / 25.4;
   const imgW_mm = canvas.width  / pxPerMm;
   const imgH_mm = canvas.height / pxPerMm;
   const scale = pageW / imgW_mm;
   const scaledW = imgW_mm * scale;
   const scaledH = imgH_mm * scale;
-  const imgData = canvas.toDataURL('image/png');
+  const imgData = canvas.toDataURL('image/jpeg', 0.92);
   if (scaledH <= pageH) {
-    pdf.addImage(imgData, 'PNG', 0, 0, scaledW, scaledH);
+    pdf.addImage(imgData, 'JPEG', 0, 0, scaledW, scaledH);
   } else {
     let y = 0;
     while (y < scaledH) {
       if (y > 0) pdf.addPage();
-      pdf.addImage(imgData, 'PNG', 0, -y, scaledW, scaledH);
+      pdf.addImage(imgData, 'JPEG', 0, -y, scaledW, scaledH);
       y += pageH;
     }
   }
