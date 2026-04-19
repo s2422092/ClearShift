@@ -1669,16 +1669,49 @@ $('btn-board-slot-submit').addEventListener('click', async function() {
     const oldSlot = slots.find(s => s.id === slotId);
     if (!oldSlot) { _shiftSubmitting = false; return; }
 
-    // ① 楽観的UI：旧スロットを仮の更新済み版に即時差し替え
-    const optimisticSlot = {
-      ...oldSlot,
+    // 旧スロットに残る他メンバーのアサインメント
+    const otherAssignments = oldSlot.assignments.filter(a => a.id !== assignmentId);
+    const m = members.find(x => x.id === memberId);
+
+    // ① 楽観的UI：
+    //   - 旧スロットから編集メンバーだけ除く（他メンバーのアサインは守る）
+    //   - 仮の新スロットを追加して即表示
+    const tempSlotId  = _nextTempId();
+    const tempAssignId = _nextTempId();
+    const optimisticNewSlot = {
+      id: tempSlotId,
+      event_id: EVENT_ID,
+      job_type_id: job.id,
+      date: oldSlot.date,
+      start_time: oldSlot.start_time,
+      end_time: oldSlot.end_time,
       role: job.title,
       location: job.location || '',
       required_count: job.required_count,
-      job_type_id: job.id,
+      note: null,
+      assignments: [{
+        id: tempAssignId,
+        slot_id: tempSlotId,
+        member_id: memberId,
+        member_name: m?.name || '',
+        member_department: m?.department || '',
+        status: 'scheduled',
+        note: null,
+        reported_at: null,
+      }],
       _pending: true,
     };
-    slots = slots.map(s => s.id === slotId ? optimisticSlot : s);
+
+    if (otherAssignments.length > 0) {
+      // 旧スロットに他メンバーが残る → アサイン一覧だけ更新して保持
+      slots = slots.map(s =>
+        s.id === slotId ? { ...oldSlot, assignments: otherAssignments } : s
+      );
+    } else {
+      // 旧スロットが空になる → ローカルから除去
+      slots = slots.filter(s => s.id !== slotId);
+    }
+    slots.push(optimisticNewSlot);
     closeBoardSlotModal();
     renderShiftBoard();
 
@@ -1699,14 +1732,22 @@ $('btn-board-slot-submit').addEventListener('click', async function() {
           member_id: memberId,
         }),
       });
-      // ③ 仮データを実データに差し替え（ほぼ視覚変化なし）
-      slots = slots.filter(s => s.id !== slotId && s.id !== optimisticSlot.id);
-      slots.push(newSlot);
+      // ③ 仮スロットを実スロットに差し替え
+      //   実スロットIDが既に slots にある（既存スロットを再利用した場合）なら
+      //   そちらを上書きマージし、tempスロットは除去
+      slots = slots.filter(s => s.id !== tempSlotId);
+      const existingReal = slots.find(s => s.id === newSlot.id);
+      if (existingReal) {
+        slots = slots.map(s => s.id === newSlot.id ? newSlot : s);
+      } else {
+        slots.push(newSlot);
+      }
       renderShiftBoard();
       showToast('シフトを変更しました');
     } catch (err) {
-      // ④ 失敗時は旧スロットに戻す
-      slots = slots.map(s => s.id === optimisticSlot.id ? oldSlot : s);
+      // ④ 失敗時：仮スロット除去 & 旧スロットを元に戻す
+      slots = slots.filter(s => s.id !== tempSlotId);
+      if (!slots.find(s => s.id === slotId)) slots.push(oldSlot);
       renderShiftBoard();
       showToast(err.message, true);
     }

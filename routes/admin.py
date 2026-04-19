@@ -730,13 +730,18 @@ def api_replace_slot_with_assignment(event_id):
             if allowed and member.department not in allowed:
                 return jsonify({'error': f'この仕事は {", ".join(allowed)} のメンバーのみ担当できます。'}), 400
 
-    # 旧データを削除
+    # 旧アサインメントのみ削除（同じスロットに他メンバーが居ればスロット自体は残す）
     old_a = ShiftAssignment.query.get(old_assignment_id)
     if old_a:
         db.session.delete(old_a)
+    db.session.flush()
+
+    # 旧スロットに残アサインメントがなくなった場合のみスロットも削除
     old_s = ShiftSlot.query.filter_by(id=old_slot_id, event_id=event_id).first()
     if old_s:
-        db.session.delete(old_s)
+        remaining = ShiftAssignment.query.filter_by(slot_id=old_slot_id).count()
+        if remaining == 0:
+            db.session.delete(old_s)
     db.session.flush()
 
     # 新スロット作成（重複スロット再利用）
