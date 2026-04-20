@@ -34,6 +34,21 @@ function hexToRgba(hex, alpha) {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
+// 局（department）でグループ化して [[dept, members[]], ...] を返す
+// 局なしは最後にまとめる
+function groupByDept(colleagues) {
+  const map = new Map();
+  colleagues.forEach(c => {
+    const key = c.department || '';
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(c);
+  });
+  // 局あり → 名前順、局なし → 末尾
+  const withDept = [...map.entries()].filter(([k]) => k).sort((a, b) => a[0].localeCompare(b[0]));
+  const noDept   = map.has('') ? [['', map.get('')]] : [];
+  return [...withDept, ...noDept];
+}
+
 // ─── State ────────────────────────────────────────────────────────────────────
 let myShifts = [];
 let currentMyDay = null; // 選択中の日付 (YYYY-MM-DD)
@@ -180,24 +195,30 @@ function renderMyShiftContent() {
     const s = item.shift;
     const color = s.job_color || '#4DA3FF';
     const colleaguesHtml = (s.colleagues && s.colleagues.length)
-      ? `<div class="mt-2 space-y-1">
-          <div class="text-[10px] text-gray-400 font-medium mb-1">同じシフトのメンバー</div>
-          ${s.colleagues.map(c => `
-            <div class="flex items-center gap-2 py-1 px-2 bg-gray-50 rounded-lg">
-              <div class="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                <span class="text-[10px] font-bold text-primary">${c.name[0]}</span>
-              </div>
-              <div class="flex-1 min-w-0">
-                <span class="text-xs font-medium text-gray-800">${c.name}</span>
-                ${c.department ? `<span class="text-[10px] text-gray-400 ml-1">${c.department}</span>` : ''}
-              </div>
-              <button class="partner-absent-btn flex-shrink-0 text-[10px] font-medium px-2 py-1 rounded-md border transition-colors
-                ${c.status === 'absent' ? 'bg-red-500 text-white border-red-500' : 'bg-white text-red-400 border-red-200 hover:bg-red-50'}"
-                data-slot="${s.slot_id}" data-member="${c.member_id}" data-name="${c.name}">
-                ${c.status === 'absent' ? '報告済み' : 'いない'}
-              </button>
-            </div>`).join('')}
-        </div>`
+      ? (() => {
+          const groups = groupByDept(s.colleagues);
+          return `<div class="mt-2 space-y-1.5">
+            <div class="text-[10px] text-gray-400 font-medium mb-1">同じシフトのメンバー</div>
+            ${groups.map(([dept, members]) => `
+              ${dept ? `<div class="text-[9px] font-bold text-gray-400 px-1 mt-1 mb-0.5 uppercase tracking-wide">${dept}</div>` : ''}
+              ${members.map(c => `
+                <div class="flex items-center gap-2 py-1 px-2 bg-gray-50 rounded-lg">
+                  <div class="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <span class="text-[10px] font-bold text-primary">${c.name[0]}</span>
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <span class="text-xs font-medium text-gray-800">${c.name}</span>
+                    ${c.grade ? `<span class="text-[10px] text-gray-400 ml-1">${c.grade}</span>` : ''}
+                  </div>
+                  <button class="partner-absent-btn flex-shrink-0 text-[10px] font-medium px-2 py-1 rounded-md border transition-colors
+                    ${c.status === 'absent' ? 'bg-red-500 text-white border-red-500' : 'bg-white text-red-400 border-red-200 hover:bg-red-50'}"
+                    data-slot="${s.slot_id}" data-member="${c.member_id}" data-name="${c.name}">
+                    ${c.status === 'absent' ? '報告済み' : 'いない'}
+                  </button>
+                </div>`).join('')}
+            `).join('')}
+          </div>`;
+        })()
       : '';
 
     return `
@@ -428,20 +449,30 @@ function openShiftDetailModal(shift) {
       </div>`);
   }
 
-  // 一緒のメンバー
+  // 一緒のメンバー（局ごとにグループ化）
   if (shift.colleagues && shift.colleagues.length > 0) {
+    const groups = groupByDept(shift.colleagues);
     rows.push(`
       <div>
         <div class="text-xs font-semibold text-gray-500 mb-2">同じシフトのメンバー <span class="font-normal text-gray-400">${shift.colleagues.length}人</span></div>
-        <div class="bg-white border border-gray-100 rounded-xl overflow-hidden divide-y divide-gray-50">
-          ${shift.colleagues.map(c => `
-            <div class="flex items-center gap-3 px-3 py-2.5">
-              <div class="w-8 h-8 rounded-full bg-primary-light flex items-center justify-center flex-shrink-0">
-                <span class="text-xs font-bold text-primary">${c.name[0]}</span>
-              </div>
-              <div class="flex-1 min-w-0">
-                <div class="text-sm font-medium text-gray-800">${c.name}</div>
-                ${(c.department || c.grade) ? `<div class="text-xs text-gray-400">${[c.department, c.grade].filter(Boolean).join(' · ')}</div>` : ''}
+        <div class="space-y-2">
+          ${groups.map(([dept, members]) => `
+            <div class="bg-white border border-gray-100 rounded-xl overflow-hidden">
+              ${dept ? `<div class="px-3 py-1.5 bg-gray-50 border-b border-gray-100">
+                <span class="text-[10px] font-bold text-gray-500">${dept}</span>
+                <span class="text-[10px] text-gray-400 ml-1">${members.length}人</span>
+              </div>` : ''}
+              <div class="divide-y divide-gray-50">
+                ${members.map(c => `
+                  <div class="flex items-center gap-3 px-3 py-2.5">
+                    <div class="w-8 h-8 rounded-full bg-primary-light flex items-center justify-center flex-shrink-0">
+                      <span class="text-xs font-bold text-primary">${c.name[0]}</span>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <div class="text-sm font-medium text-gray-800">${c.name}</div>
+                      ${c.grade ? `<div class="text-xs text-gray-400">${c.grade}</div>` : ''}
+                    </div>
+                  </div>`).join('')}
               </div>
             </div>`).join('')}
         </div>
@@ -488,36 +519,67 @@ $('shift-detail-overlay').addEventListener('click',  () => $('modal-shift-detail
 
 // ─── PDF Download ─────────────────────────────────────────────────────────────
 
-// 通常用（マイシフトなど縦スクロールのみの要素）
-async function captureAsPDF(targetEl, filename, landscape) {
-  const canvas = await html2canvas(targetEl, {
-    scale: 1,
-    useCORS: true,
-    backgroundColor: '#ffffff',
-    logging: false,
+async function captureAsPDF(targetEl, filename) {
+  // ライブラリ確認
+  if (typeof html2canvas === 'undefined') throw new Error('html2canvas が読み込まれていません。ページを再読み込みしてください。');
+  if (!window.jspdf?.jsPDF) throw new Error('jsPDF が読み込まれていません。ページを再読み込みしてください。');
+
+  // overflow:hidden によるクリップを避けるため、クローンを body 直下に配置してキャプチャ
+  const CAPTURE_W = 390;
+  const clone = targetEl.cloneNode(true);
+  clone.style.cssText = [
+    'position:fixed', 'top:-99999px', 'left:0',
+    `width:${CAPTURE_W}px`, 'background:#ffffff',
+    'padding:12px', 'box-sizing:border-box',
+    'overflow:visible',
+  ].join(';');
+  // overflow:hidden を持つ子孫要素を全て解除
+  clone.querySelectorAll('*').forEach(el => {
+    const ov = getComputedStyle(el).overflow;
+    if (ov === 'hidden' || ov === 'clip') el.style.overflow = 'visible';
   });
-  const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ orientation: landscape ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' });
-  const pageW = pdf.internal.pageSize.getWidth();
-  const pageH = pdf.internal.pageSize.getHeight();
-  const pxPerMm = 96 / 25.4;
-  const imgW_mm = canvas.width  / pxPerMm;
-  const imgH_mm = canvas.height / pxPerMm;
-  const scale = pageW / imgW_mm;
-  const scaledW = imgW_mm * scale;
-  const scaledH = imgH_mm * scale;
-  const imgData = canvas.toDataURL('image/jpeg', 0.92);
-  if (scaledH <= pageH) {
-    pdf.addImage(imgData, 'JPEG', 0, 0, scaledW, scaledH);
-  } else {
-    let y = 0;
-    while (y < scaledH) {
-      if (y > 0) pdf.addPage();
-      pdf.addImage(imgData, 'JPEG', 0, -y, scaledW, scaledH);
-      y += pageH;
+  // ボタン類（報告ボタン等）は PDF に不要なので非表示
+  clone.querySelectorAll('button').forEach(b => b.style.display = 'none');
+  document.body.appendChild(clone);
+
+  try {
+    const canvas = await html2canvas(clone, {
+      scale: 1.5,
+      useCORS: true,
+      backgroundColor: '#ffffff',
+      logging: false,
+      width: CAPTURE_W,
+      windowWidth: CAPTURE_W,
+    });
+
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+
+    // キャンバスの幅を A4 幅に合わせてスケール
+    const ratio   = pageW / canvas.width;
+    const imgW_mm = canvas.width  * ratio;
+    const imgH_mm = canvas.height * ratio;
+
+    const imgData = canvas.toDataURL('image/jpeg', 0.9);
+
+    if (imgH_mm <= pageH) {
+      pdf.addImage(imgData, 'JPEG', 0, 0, imgW_mm, imgH_mm);
+    } else {
+      // ページをまたぐ場合は分割
+      let offsetMm = 0;
+      while (offsetMm < imgH_mm) {
+        if (offsetMm > 0) pdf.addPage();
+        pdf.addImage(imgData, 'JPEG', 0, -offsetMm, imgW_mm, imgH_mm);
+        offsetMm += pageH;
+      }
     }
+
+    pdf.save(filename);
+  } finally {
+    document.body.removeChild(clone);
   }
-  pdf.save(filename);
 }
 
 $('btn-download-myshift-pdf')?.addEventListener('click', async function () {
@@ -526,9 +588,9 @@ $('btn-download-myshift-pdf')?.addEventListener('click', async function () {
   this.textContent = '生成中...';
   this.disabled = true;
   try {
-    await captureAsPDF(target, `マイシフト_${MEMBER_NAME}.pdf`, false);
+    await captureAsPDF(target, `マイシフト_${MEMBER_NAME}.pdf`);
   } catch (e) {
-    alert('PDFの生成に失敗しました。');
+    alert(e.message || 'PDFの生成に失敗しました。ページを再読み込みしてお試しください。');
   } finally {
     this.textContent = 'PDF';
     this.disabled = false;

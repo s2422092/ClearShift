@@ -505,29 +505,36 @@ document.querySelectorAll('.member-modal-close').forEach(b =>
 
 $('form-add-member').addEventListener('submit', async e => {
   e.preventDefault();
-  const errEl = $('member-error');
-  const submitBtn = e.submitter || e.target.querySelector('[type=submit]');
-  errEl.classList.add('hidden');
-  await withLoading(submitBtn, async () => {
-    try {
-      await apiFetch(`/api/events/${EVENT_ID}/members`, {
-        method: 'POST',
-        body: JSON.stringify({
-          name: $('member-name').value.trim(),
-          email: $('member-email').value.trim(),
-          grade: $('member-grade').value.trim(),
-          department: $('member-dept').value.trim(),
-        }),
-      });
-      modalMember.classList.add('hidden');
-      $('form-add-member').reset();
-      loadMembers();
-      showToast('メンバーを追加しました');
-    } catch (err) {
-      errEl.textContent = err.message;
-      errEl.classList.remove('hidden');
-    }
-  });
+  const body = {
+    name:       $('member-name').value.trim(),
+    email:      $('member-email').value.trim(),
+    grade:      $('member-grade').value.trim(),
+    department: $('member-dept').value.trim(),
+  };
+  if (!body.name) return;
+
+  // 楽観的追加
+  const tempId = _nextTempId();
+  const tempMember = { id: tempId, ...body, is_leader: false, _pending: true };
+  members.push(tempMember);
+  renderMemberList();
+  modalMember.classList.add('hidden');
+  $('form-add-member').reset();
+  showToast('メンバーを追加しました');
+
+  // バックグラウンド保存
+  try {
+    const created = await apiFetch(`/api/events/${EVENT_ID}/members`, {
+      method: 'POST', body: JSON.stringify(body),
+    });
+    const idx = members.findIndex(m => m.id === tempId);
+    if (idx !== -1) members[idx] = created;
+    renderMemberList();
+  } catch (err) {
+    members = members.filter(m => m.id !== tempId);
+    renderMemberList();
+    showToast('メンバーの追加に失敗しました。', true);
+  }
 });
 
 // ─── Shift Board ─────────────────────────────────────────────────────────────
@@ -2106,9 +2113,6 @@ document.querySelectorAll('.job-modal-close').forEach(b =>
 
 $('form-add-job').addEventListener('submit', async e => {
   e.preventDefault();
-  const errEl = $('job-error');
-  const submitBtn = e.submitter || e.target.querySelector('[type=submit]');
-  errEl.classList.add('hidden');
 
   let requirements = null;
   if (jobReqIntervalMin) {
@@ -2129,33 +2133,59 @@ $('form-add-job').addEventListener('submit', async e => {
     title:          $('job-title').value.trim(),
     description:    $('job-description').value.trim(),
     location:       $('job-location').value.trim(),
+    color:          $('job-color').value || '#4DA3FF',
     required_count: jobReqIntervalMin ? 1 : (parseInt($('job-count').value) || 1),
     requirements,
     allowed_departments,
   };
+  if (!body.title) return;
 
-  await withLoading(submitBtn, async () => {
+  const isEdit = !!editingJobId;
+  const targetId = editingJobId;
+
+  if (isEdit) {
+    // 楽観的更新
+    const idx = jobs.findIndex(j => j.id === targetId);
+    const prev = idx !== -1 ? { ...jobs[idx] } : null;
+    if (idx !== -1) jobs[idx] = { ...jobs[idx], ...body, _pending: true };
+    renderJobList();
+    modalAddJob.classList.add('hidden');
+    showToast('仕事を更新しました');
+
     try {
-      if (editingJobId) {
-        const updated = await apiFetch(`/api/events/${EVENT_ID}/jobs/${editingJobId}`, {
-          method: 'PATCH', body: JSON.stringify(body),
-        });
-        const idx = jobs.findIndex(j => j.id === updated.id);
-        if (idx !== -1) jobs[idx] = updated;
-      } else {
-        const created = await apiFetch(`/api/events/${EVENT_ID}/jobs`, {
-          method: 'POST', body: JSON.stringify(body),
-        });
-        jobs.push(created);
-      }
-      modalAddJob.classList.add('hidden');
+      const updated = await apiFetch(`/api/events/${EVENT_ID}/jobs/${targetId}`, {
+        method: 'PATCH', body: JSON.stringify(body),
+      });
+      const i = jobs.findIndex(j => j.id === targetId);
+      if (i !== -1) jobs[i] = updated;
       renderJobList();
-      showToast(editingJobId ? '仕事を更新しました' : '仕事を追加しました');
     } catch (err) {
-      errEl.textContent = err.message;
-      errEl.classList.remove('hidden');
+      if (prev && idx !== -1) jobs[idx] = prev;
+      renderJobList();
+      showToast('仕事の更新に失敗しました。', true);
     }
-  });
+  } else {
+    // 楽観的追加
+    const tempId = _nextTempId();
+    const tempJob = { id: tempId, ...body, _pending: true };
+    jobs.push(tempJob);
+    renderJobList();
+    modalAddJob.classList.add('hidden');
+    showToast('仕事を追加しました');
+
+    try {
+      const created = await apiFetch(`/api/events/${EVENT_ID}/jobs`, {
+        method: 'POST', body: JSON.stringify(body),
+      });
+      const i = jobs.findIndex(j => j.id === tempId);
+      if (i !== -1) jobs[i] = created;
+      renderJobList();
+    } catch (err) {
+      jobs = jobs.filter(j => j.id !== tempId);
+      renderJobList();
+      showToast('仕事の追加に失敗しました。', true);
+    }
+  }
 });
 
 // ─── Add Slot Modal ───────────────────────────────────────────────────────────
@@ -2167,31 +2197,38 @@ document.querySelectorAll('.slot-modal-close').forEach(b =>
 
 $('form-add-slot').addEventListener('submit', async e => {
   e.preventDefault();
-  const errEl = $('slot-error');
-  const submitBtn = e.submitter || e.target.querySelector('[type=submit]');
-  errEl.classList.add('hidden');
-  await withLoading(submitBtn, async () => {
-    try {
-      await apiFetch(`/api/events/${EVENT_ID}/slots`, {
-        method: 'POST',
-        body: JSON.stringify({
-          date: $('slot-date').value,
-          start_time: $('slot-start').value,
-          end_time: $('slot-end').value,
-          role: $('slot-role').value.trim(),
-          location: $('slot-location').value.trim(),
-          required_count: parseInt($('slot-count').value) || 1,
-        }),
-      });
-      modalSlot.classList.add('hidden');
-      $('form-add-slot').reset();
-      loadShifts();
-      showToast('シフト枠を追加しました');
-    } catch (err) {
-      errEl.textContent = err.message;
-      errEl.classList.remove('hidden');
-    }
-  });
+  const body = {
+    date:           $('slot-date').value,
+    start_time:     $('slot-start').value,
+    end_time:       $('slot-end').value,
+    role:           $('slot-role').value.trim(),
+    location:       $('slot-location').value.trim(),
+    required_count: parseInt($('slot-count').value) || 1,
+  };
+  if (!body.date || !body.start_time || !body.end_time) return;
+
+  // 楽観的追加
+  const tempId = _nextTempId();
+  const tempSlot = { id: tempId, ...body, assignments: [], _pending: true };
+  slots.push(tempSlot);
+  renderShiftBoard();
+  modalSlot.classList.add('hidden');
+  $('form-add-slot').reset();
+  showToast('シフト枠を追加しました');
+
+  // バックグラウンド保存
+  try {
+    const created = await apiFetch(`/api/events/${EVENT_ID}/slots`, {
+      method: 'POST', body: JSON.stringify(body),
+    });
+    const idx = slots.findIndex(s => s.id === tempId);
+    if (idx !== -1) slots[idx] = { ...created, assignments: [] };
+    renderShiftBoard();
+  } catch (err) {
+    slots = slots.filter(s => s.id !== tempId);
+    renderShiftBoard();
+    showToast('シフト枠の追加に失敗しました。', true);
+  }
 });
 
 // ─── Assign Modal ─────────────────────────────────────────────────────────────
@@ -2691,9 +2728,7 @@ function renderJobDistCoverageView(list) {
           const ok = !unset && e.assigned >= e.required;
           const pct = unset ? 0 : Math.min(100, e.assigned / e.required * 100);
           const barColor = ok ? '#10B981' : '#EF4444';
-          const countLabel = unset
-            ? `<span class="text-[10px] text-gray-300 tabular-nums min-w-[36px] text-center">未設定</span>`
-            : `<span class="text-[10px] font-bold tabular-nums min-w-[36px] text-center" style="color:${barColor}">${e.assigned}/${e.required}人</span>`;
+          const countLabel = `<span class="text-[10px] font-bold tabular-nums min-w-[36px] text-center" style="color:${unset ? '#D1D5DB' : barColor}">${e.assigned}/${e.required}人</span>`;
           return `
             <div class="mb-1.5 px-1">
               <div class="flex items-center gap-1 mb-0.5">
