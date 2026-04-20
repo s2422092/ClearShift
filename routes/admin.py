@@ -1257,3 +1257,32 @@ def api_delete_absence(event_id):
         db.session.delete(absence)
         db.session.commit()
     return jsonify({'ok': True})
+
+
+# ── Google Sheets エクスポート ─────────────────────────────────────────────────
+
+@admin_bp.route('/api/events/<int:event_id>/export-sheets', methods=['POST'])
+@login_required
+def api_export_sheets(event_id):
+    """イベントのシフト表を Google スプレッドシートに書き出し、URL を返す。"""
+    _can_access_event(event_id)
+    event = Event.query.get_or_404(event_id)
+
+    # assignments を含めてスロットを一括取得
+    slots = (
+        ShiftSlot.query
+        .filter_by(event_id=event_id)
+        .options(joinedload(ShiftSlot.assignments))
+        .all()
+    )
+    members = EventMember.query.filter_by(event_id=event_id).all()
+    day_labels = event.get_day_labels()
+
+    try:
+        from utils.google_sheets import export_event_to_sheets
+        url = export_event_to_sheets(event, slots, members, day_labels)
+        return jsonify({'url': url})
+    except (ValueError, RuntimeError) as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': f'スプレッドシートの作成に失敗しました: {e}'}), 500
