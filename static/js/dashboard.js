@@ -520,6 +520,7 @@ function renderMemberList() {
       openMemberDetail(parseInt(btn.dataset.id));
     });
   });
+
 }
 
 // メンバー検索バー
