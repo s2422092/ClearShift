@@ -2586,6 +2586,9 @@ function renderWorkloadPanel() {
     </div>`;
 }
 
+// ─── 仕事分担パネル ビュー状態 ───────────────────────────────────────────────
+let jobDistView = 'coverage'; // 'coverage' | 'members'
+
 // 公平性パネルと仕事分担パネルは排他（同時に表示不可）
 function showWorkloadPanel() {
   hideJobDistPanel(true);   // 仕事分担ボタンを表示したまま閉じる
@@ -2623,20 +2626,41 @@ function renderJobDistPanel() {
     return;
   }
 
-  const jobsWithReq = jobs.filter(j => j.requirements?.counts && Object.keys(j.requirements.counts).length > 0);
-  if (!jobsWithReq.length) {
-    list.innerHTML = '<div class="py-6 text-center text-gray-400 text-xs leading-relaxed">時間ごとの必要人数が設定された仕事がありません<br><span class="text-[10px]">仕事タブから設定してください</span></div>';
+  if (jobDistView === 'members') {
+    renderJobDistMembersView(list);
+  } else {
+    renderJobDistCoverageView(list);
+  }
+}
+
+function renderJobDistCoverageView(list) {
+  if (!jobs.length) {
+    list.innerHTML = '<div class="py-6 text-center text-gray-400 text-xs leading-relaxed">仕事が登録されていません<br><span class="text-[10px]">仕事タブから追加してください</span></div>';
+    return;
+  }
+
+  // 全仕事の requirements から時刻を収集
+  const allTimesSet = new Set();
+  jobs.forEach(job => {
+    Object.entries(job.requirements?.counts || {}).forEach(([t, v]) => {
+      if (v > 0) allTimesSet.add(t);
+    });
+  });
+
+  if (!allTimesSet.size) {
+    list.innerHTML = '<div class="py-6 text-center text-gray-400 text-xs leading-relaxed">時間ごとの必要人数が設定されていません<br><span class="text-[10px]">仕事タブから設定してください</span></div>';
     return;
   }
 
   const daySlots = slots.filter(s => s.date === currentDay);
+  const times = [...allTimesSet].sort();
 
-  // 時刻ごとに各仕事の充足状況を集計
-  const timeMap = new Map(); // time → [{job, required, assigned}]
-  jobsWithReq.forEach(job => {
-    Object.entries(job.requirements.counts).forEach(([time, required]) => {
-      if (!required) return;
-      const timeM = timeToMin(time);
+  list.innerHTML = times.map(time => {
+    const timeM = timeToMin(time);
+
+    // 全仕事について assigned / required を計算
+    const entries = jobs.map(job => {
+      const required = job.requirements?.counts?.[time] ?? 0;
       let assigned = 0;
       daySlots.forEach(slot => {
         if (slot.job_type_id !== job.id) return;
@@ -2645,44 +2669,173 @@ function renderJobDistPanel() {
           assigned += slot.assignments.filter(a => a.status !== 'absent').length;
         }
       });
-      if (!timeMap.has(time)) timeMap.set(time, []);
-      timeMap.get(time).push({ job, required, assigned });
+      return { job, required, assigned };
     });
-  });
 
-  if (!timeMap.size) {
-    list.innerHTML = '<div class="py-6 text-center text-gray-400 text-xs">この日の必要人数設定がありません</div>';
-    return;
-  }
+    // 充足バッジは required > 0 のものだけで判定
+    const configured = entries.filter(e => e.required > 0);
+    const hasShortage = configured.some(e => e.assigned < e.required);
 
-  const times = [...timeMap.keys()].sort();
-  list.innerHTML = times.map(time => {
-    const entries = timeMap.get(time);
-    const hasShortage = entries.some(e => e.assigned < e.required);
     return `
       <div class="mb-2">
         <div class="flex items-center gap-1.5 px-1 mb-1">
           <span class="text-[10px] font-bold text-gray-500 w-10">${time}</span>
-          ${hasShortage ? `<span class="text-[9px] font-bold text-red-400 bg-red-50 px-1 rounded">不足あり</span>` : `<span class="text-[9px] text-green-500 bg-green-50 px-1 rounded">充足</span>`}
+          ${configured.length > 0
+            ? (hasShortage
+                ? `<span class="text-[9px] font-bold text-red-400 bg-red-50 px-1 rounded">不足あり</span>`
+                : `<span class="text-[9px] text-green-500 bg-green-50 px-1 rounded">充足</span>`)
+            : ''}
         </div>
         ${entries.map(e => {
-          const ok = e.assigned >= e.required;
-          const pct = Math.min(100, e.required > 0 ? e.assigned / e.required * 100 : 100);
+          const unset = e.required === 0;
+          const ok = !unset && e.assigned >= e.required;
+          const pct = unset ? 0 : Math.min(100, e.assigned / e.required * 100);
           const barColor = ok ? '#10B981' : '#EF4444';
+          const countLabel = unset
+            ? `<span class="text-[10px] text-gray-300 tabular-nums min-w-[36px] text-center">未設定</span>`
+            : `<span class="text-[10px] font-bold tabular-nums min-w-[36px] text-center" style="color:${barColor}">${e.assigned}/${e.required}人</span>`;
           return `
             <div class="mb-1.5 px-1">
               <div class="flex items-center gap-1 mb-0.5">
                 <span class="w-2 h-2 rounded-full flex-shrink-0" style="background:${e.job.color}"></span>
                 <span class="text-[10px] font-medium flex-1 truncate" style="color:${e.job.color}">${e.job.title}</span>
-                <span class="text-[10px] font-bold flex-shrink-0" style="color:${barColor}">${e.assigned}/${e.required}人</span>
+                <div class="flex items-center gap-0.5 flex-shrink-0">
+                  <button class="job-req-dec w-4 h-4 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors leading-none"
+                    data-job="${e.job.id}" data-time="${time}">−</button>
+                  ${countLabel}
+                  <button class="job-req-inc w-4 h-4 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors leading-none"
+                    data-job="${e.job.id}" data-time="${time}">＋</button>
+                </div>
               </div>
+              ${!unset ? `
               <div class="h-1 rounded-full bg-gray-100 overflow-hidden ml-3">
-                <div class="h-full rounded-full" style="width:${pct}%;background:${barColor}"></div>
-              </div>
+                <div class="h-full rounded-full transition-all" style="width:${pct}%;background:${barColor}"></div>
+              </div>` : ''}
             </div>`;
         }).join('')}
       </div>`;
   }).join('<div class="border-t border-gray-50 my-1"></div>');
+
+  // +/- ボタンのイベント
+  list.querySelectorAll('.job-req-inc, .job-req-dec').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const jobId = parseInt(btn.dataset.job);
+      const time  = btn.dataset.time;
+      const delta = btn.classList.contains('job-req-inc') ? 1 : -1;
+      await updateJobRequiredCount(jobId, time, delta);
+    });
+  });
+}
+
+// 必要人数を変更して即時反映 → バックグラウンドで保存
+async function updateJobRequiredCount(jobId, time, delta) {
+  const job = jobs.find(j => j.id === jobId);
+  if (!job) return;
+  if (!job.requirements) job.requirements = { counts: {} };
+  if (!job.requirements.counts) job.requirements.counts = {};
+
+  const prev = job.requirements.counts[time] ?? 0;
+  const next = Math.max(0, prev + delta);
+  // 0 → 1 のとき（未設定から設定）、または 1 → 0 のとき（削除）は許可
+  // 既に 0 でさらに − しようとした場合は何もしない
+  if (next === prev) return;
+
+  if (next === 0) {
+    delete job.requirements.counts[time];
+  } else {
+    job.requirements.counts[time] = next;
+  }
+  renderJobDistPanel();
+
+  try {
+    await apiFetch(`/api/events/${EVENT_ID}/jobs/${jobId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ requirements: job.requirements }),
+    });
+  } catch {
+    // ロールバック
+    if (prev === 0) {
+      delete job.requirements.counts[time];
+    } else {
+      job.requirements.counts[time] = prev;
+    }
+    renderJobDistPanel();
+    showToast('保存に失敗しました。', 'error');
+  }
+}
+
+function renderJobDistMembersView(list) {
+  const daySlots = slots.filter(s => s.date === currentDay);
+
+  if (!daySlots.length) {
+    list.innerHTML = '<div class="py-6 text-center text-gray-400 text-xs">この日のシフトがありません</div>';
+    return;
+  }
+
+  // 仕事ごとにメンバーをまとめる
+  const jobMap = new Map(); // job_type_id → { job, entries: [{name, start_time, end_time, status}] }
+  daySlots.forEach(slot => {
+    const job = jobs.find(j => j.id === slot.job_type_id);
+    const jobKey = slot.job_type_id ?? '__none__';
+    if (!jobMap.has(jobKey)) {
+      jobMap.set(jobKey, {
+        job: job || { title: '仕事なし', color: '#9CA3AF' },
+        entries: [],
+      });
+    }
+    const bucket = jobMap.get(jobKey);
+    slot.assignments.forEach(a => {
+      if (a.status === 'absent') return; // 欠席は除外
+      bucket.entries.push({
+        name: a.member_name || '?',
+        start_time: slot.start_time,
+        end_time: slot.end_time,
+        isLeader: a.is_leader,
+      });
+    });
+  });
+
+  // 担当者がいる仕事のみ表示
+  const filled = [...jobMap.values()].filter(b => b.entries.length > 0);
+  if (!filled.length) {
+    list.innerHTML = '<div class="py-6 text-center text-gray-400 text-xs">担当者が割り当てられていません</div>';
+    return;
+  }
+
+  // 仕事ごとにブロック描画
+  list.innerHTML = filled.map(({ job, entries }) => {
+    // 同じ時間帯でグループ化
+    const timeGroups = new Map();
+    entries.forEach(e => {
+      const key = `${e.start_time}〜${e.end_time}`;
+      if (!timeGroups.has(key)) timeGroups.set(key, []);
+      timeGroups.get(key).push(e);
+    });
+    const timeBlocks = [...timeGroups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+
+    return `
+      <div class="mb-3">
+        <div class="flex items-center gap-1.5 px-1 mb-1.5">
+          <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:${job.color}"></span>
+          <span class="text-[11px] font-bold truncate" style="color:${job.color}">${job.title}</span>
+          <span class="text-[9px] text-gray-400 ml-auto flex-shrink-0">${entries.length}人</span>
+        </div>
+        <div class="space-y-1 ml-1">
+          ${timeBlocks.map(([timeLabel, es]) => `
+            <div class="bg-gray-50 rounded-lg px-2 py-1.5">
+              <div class="text-[9px] text-gray-400 font-medium mb-1">${timeLabel}</div>
+              <div class="space-y-0.5">
+                ${es.map(e => `
+                  <div class="flex items-center gap-1">
+                    ${e.isLeader ? `<svg class="w-2.5 h-2.5 text-amber-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>` : `<span class="w-2.5 h-2.5 flex-shrink-0"></span>`}
+                    <span class="text-[10px] text-gray-700 font-medium truncate">${e.name}</span>
+                  </div>`).join('')}
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+  }).join('<div class="border-t border-gray-100 my-2"></div>');
 }
 
 // シフトタブ切り替え時のパネル制御
@@ -2704,6 +2857,19 @@ $('btn-open-workload').addEventListener('click', showWorkloadPanel);
 $('btn-close-workload').addEventListener('click', hideWorkloadPanel);
 $('btn-open-job-dist').addEventListener('click', showJobDistPanel);
 $('btn-close-job-dist').addEventListener('click', hideJobDistPanel);
+
+document.querySelectorAll('.job-dist-view-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    jobDistView = btn.dataset.view;
+    document.querySelectorAll('.job-dist-view-btn').forEach(b => {
+      const active = b === btn;
+      b.classList.toggle('bg-primary', active);
+      b.classList.toggle('text-white', active);
+      b.classList.toggle('text-gray-500', !active);
+    });
+    renderJobDistPanel();
+  });
+});
 
 document.querySelectorAll('.workload-scope-btn').forEach(btn => {
   btn.addEventListener('click', () => {

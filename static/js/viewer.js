@@ -221,10 +221,11 @@ function renderMyShiftContent() {
                 <span class="text-xs text-gray-400 truncate">${s.location}</span>
               </div>` : ''}
           </div>
-          <div class="flex-shrink-0">
+          <div class="flex-shrink-0 flex flex-col items-end gap-1">
             <span class="text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLOR[s.status] || STATUS_COLOR.scheduled}">
               ${STATUS_LABEL[s.status] || s.status}
             </span>
+            ${s.status === 'scheduled' ? `<span class="text-[9px] text-gray-300">タップで報告</span>` : ''}
           </div>
         </button>
         ${colleaguesHtml}
@@ -358,13 +359,39 @@ function openShiftDetailModal(shift) {
 
   const rows = [];
 
-  // ステータス
+  // ステータス + 報告ボタン
+  const isAbsent   = shift.status === 'absent';
+  const isLate     = shift.status === 'late';
+  const isScheduled = shift.status === 'scheduled';
   rows.push(`
-    <div class="flex items-center justify-between bg-surface rounded-xl px-3 py-2.5">
-      <span class="text-xs text-gray-500">ステータス</span>
-      <span class="text-xs font-medium px-2.5 py-1 rounded-full ${STATUS_COLOR[shift.status] || STATUS_COLOR.scheduled}">
-        ${STATUS_LABEL[shift.status] || shift.status}
-      </span>
+    <div class="bg-surface rounded-xl px-3 py-3">
+      <div class="flex items-center justify-between mb-2.5">
+        <span class="text-xs text-gray-500">ステータス</span>
+        <span class="text-xs font-medium px-2.5 py-1 rounded-full ${STATUS_COLOR[shift.status] || STATUS_COLOR.scheduled}">
+          ${STATUS_LABEL[shift.status] || shift.status}
+        </span>
+      </div>
+      <div class="flex gap-1.5">
+        <button class="report-status-btn flex-1 py-2 rounded-lg text-[11px] font-bold border-2 transition-all
+          ${isAbsent
+            ? 'bg-red-500 text-white border-red-500 shadow-sm'
+            : 'bg-white text-red-400 border-red-200 hover:bg-red-50 hover:border-red-300'}"
+          data-slot="${shift.slot_id}" data-status="absent">
+          欠席報告
+        </button>
+        <button class="report-status-btn flex-1 py-2 rounded-lg text-[11px] font-bold border-2 transition-all
+          ${isLate
+            ? 'bg-amber-400 text-white border-amber-400 shadow-sm'
+            : 'bg-white text-amber-500 border-amber-200 hover:bg-amber-50 hover:border-amber-300'}"
+          data-slot="${shift.slot_id}" data-status="late">
+          遅刻報告
+        </button>
+        ${!isScheduled ? `
+        <button class="report-status-btn px-3 py-2 rounded-lg text-[11px] font-bold border-2 bg-white text-gray-400 border-gray-200 hover:bg-gray-50 transition-all"
+          data-slot="${shift.slot_id}" data-status="scheduled">
+          取消
+        </button>` : ''}
+      </div>
     </div>`);
 
   // 仕事内容
@@ -425,6 +452,35 @@ function openShiftDetailModal(shift) {
 
   $('shift-detail-body').innerHTML = rows.join('');
   $('modal-shift-detail').classList.remove('hidden');
+
+  // 欠席・遅刻・取消ボタン
+  $('shift-detail-body').querySelectorAll('.report-status-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const slotId = parseInt(btn.dataset.slot);
+      const status = btn.dataset.status;
+      await reportMyStatus(slotId, status);
+      $('modal-shift-detail').classList.add('hidden');
+    });
+  });
+}
+
+async function reportMyStatus(slotId, status) {
+  try {
+    const res = await fetch(`${_API_ROOT}/event/${EVENT_ID}/api/report-status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slot_id: slotId, status }),
+    });
+    if (!res.ok) throw new Error();
+    // ローカル状態を更新
+    const shift = myShifts.find(s => s.slot_id === slotId);
+    if (shift) shift.status = status;
+    _lsSet(myShifts);
+    renderMyShiftContent();
+    showReportToast(status);
+  } catch {
+    alert('送信に失敗しました。もう一度お試しください。');
+  }
 }
 
 $('btn-shift-detail-close').addEventListener('click', () => $('modal-shift-detail').classList.add('hidden'));
