@@ -364,6 +364,10 @@ function renderMemberList() {
                         <span class="text-sm font-medium text-gray-900 truncate">${m.name}</span>
                         ${m.grade ? `<span class="text-xs text-gray-400 flex-shrink-0">${m.grade}</span>` : ''}
                       </div>
+                      ${(m.labels && m.labels.length) ? `
+                        <div class="flex flex-wrap gap-1 mt-0.5 mb-0.5">
+                          ${m.labels.map(l => `<span class="px-1.5 py-0.5 bg-primary-light text-primary text-[9px] font-medium rounded-full border border-primary/20 leading-tight">${l}</span>`).join('')}
+                        </div>` : ''}
                       <div class="flex items-center gap-2 flex-wrap">
                         ${m.email ? `
                           <span class="flex items-center gap-1 text-xs text-gray-400 min-w-0">
@@ -1130,6 +1134,7 @@ function renderShiftBoard() {
               <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 0;color:${isCopySrc ? '#6D28D9' : '#1f2937'};font-size:12px;font-weight:600">
                 ${m.name}${m.grade ? `<span style="margin-left:4px;font-size:9px;font-weight:400;color:#9ca3af">${m.grade}</span>` : ''}
               </div>
+              ${(m.labels && m.labels.length) ? `<div style="display:flex;flex-wrap:wrap;gap:2px;margin-bottom:2px">${m.labels.map(l => `<span style="padding:1px 5px;background:#ede9fe;color:#7c3aed;font-size:8px;font-weight:500;border-radius:999px;border:1px solid rgba(124,58,237,0.2);line-height:1.4">${l}</span>`).join('')}</div>` : ''}
             </div>
             <button class="btn-board-copy flex-shrink-0 transition-colors ${isCopySrc ? 'text-purple-500' : 'text-gray-300 hover:text-purple-400'}"
               data-mid="${m.id}" title="${isCopySrc ? 'コピー元（クリックで解除）' : 'このメンバーのシフトをコピー'}">
