@@ -271,17 +271,32 @@ function gradeNum(grade) {
 // グループの開閉状態を保持（dept名 → true=折りたたみ中）
 const collapsedDepts = new Set();
 const COLLAPSE_THRESHOLD = 10;
+let memberSearchQuery = '';
 
 function renderMemberList() {
   const list = $('member-list');
-  if (!members.length) {
-    list.innerHTML = `<div class="text-center py-10 text-gray-400 text-sm">メンバーがいません。追加してください。</div>`;
+
+  // 検索フィルター
+  const q = memberSearchQuery.trim();
+  const filtered = q
+    ? members.filter(m =>
+        m.name.includes(q) ||
+        (m.department || '').includes(q) ||
+        (m.grade || '').includes(q) ||
+        (m.labels || []).some(l => l.includes(q))
+      )
+    : members;
+
+  if (!filtered.length) {
+    list.innerHTML = q
+      ? `<div class="text-center py-10 text-gray-400 text-sm">「${q}」に一致するメンバーがいません。</div>`
+      : `<div class="text-center py-10 text-gray-400 text-sm">メンバーがいません。追加してください。</div>`;
     return;
   }
 
   // 局でグループ化（学年降順でソート）
   const depts = {};
-  [...members]
+  [...filtered]
     .sort((a, b) => (b.is_leader ? 1 : 0) - (a.is_leader ? 1 : 0) || gradeNum(b.grade) - gradeNum(a.grade))
     .forEach(m => {
       const key = m.department || '未分類';
@@ -384,6 +399,12 @@ function renderMemberList() {
                         data-id="${m.id}" title="${m.is_leader ? 'リーダー解除' : 'リーダーに設定'}">
                         <svg class="w-4 h-4" fill="${m.is_leader ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/>
+                        </svg>
+                      </button>
+                      <button class="btn-open-label transition-colors opacity-0 group-hover:opacity-100 ${(m.labels && m.labels.length) ? 'text-primary opacity-100' : 'text-gray-300 hover:text-primary'}"
+                        data-id="${m.id}" title="ラベルを編集">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a2 2 0 012-2z"/>
                         </svg>
                       </button>
                       <button class="btn-del-member text-gray-300 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
@@ -490,6 +511,32 @@ function renderMemberList() {
       e.stopPropagation();
       openMemberDetail(parseInt(btn.dataset.id));
     });
+  });
+
+  // ラベルボタン → メンバー詳細モーダルを開く
+  list.querySelectorAll('.btn-open-label').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openMemberDetail(parseInt(btn.dataset.id));
+    });
+  });
+}
+
+// メンバー検索バー
+const memberSearchEl = $('member-search');
+const memberSearchClearEl = $('member-search-clear');
+if (memberSearchEl) {
+  memberSearchEl.addEventListener('input', () => {
+    memberSearchQuery = memberSearchEl.value;
+    memberSearchClearEl.classList.toggle('hidden', !memberSearchQuery);
+    renderMemberList();
+  });
+  memberSearchClearEl.addEventListener('click', () => {
+    memberSearchEl.value = '';
+    memberSearchQuery = '';
+    memberSearchClearEl.classList.add('hidden');
+    memberSearchEl.focus();
+    renderMemberList();
   });
 }
 
