@@ -190,6 +190,14 @@
                 </svg>
                 枠を追加
               </button>
+              <button id="btn-bulk-absent"
+                class="flex items-center gap-1 px-2.5 py-1.5 text-xs text-red-500 border border-red-200 rounded-lg hover:bg-red-50 transition-colors whitespace-nowrap">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
+                </svg>
+                一括欠席
+              </button>
               <button id="btn-bulk-delete-mode"
                 class="flex items-center gap-1 px-2.5 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition-colors whitespace-nowrap">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -931,6 +939,51 @@
       </div>
     </div>
 
+  </div>
+</div>
+
+<!-- 一括欠席モーダル -->
+<div id="modal-bulk-absent" class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+  <div class="absolute inset-0 bg-black/40 backdrop-blur-sm bulk-absent-close"></div>
+  <div class="relative bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85svh]">
+    <!-- ハンドル（モバイル） -->
+    <div class="flex justify-center pt-3 pb-0 sm:hidden flex-shrink-0">
+      <div class="w-10 h-1 rounded-full bg-gray-200"></div>
+    </div>
+    <!-- ヘッダー -->
+    <div class="px-5 pt-4 pb-3 flex items-center justify-between flex-shrink-0 border-b border-gray-100">
+      <div>
+        <h3 class="text-base font-bold text-gray-900">一括欠席入力</h3>
+        <p id="bulk-absent-day-label" class="text-xs text-gray-400 mt-0.5"></p>
+      </div>
+      <button class="bulk-absent-close w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 rounded-lg hover:bg-surface">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <!-- 選択済みタグ -->
+    <div id="bulk-absent-tags" class="hidden px-4 py-2 flex flex-wrap gap-1.5 border-b border-gray-50 flex-shrink-0"></div>
+    <!-- 検索 -->
+    <div class="px-4 py-3 flex-shrink-0">
+      <div class="relative">
+        <svg class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/>
+        </svg>
+        <input id="bulk-absent-search" type="text" placeholder="名前を入力して検索..."
+          class="w-full pl-9 pr-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-300 focus:border-red-300">
+      </div>
+    </div>
+    <!-- メンバー候補リスト -->
+    <div id="bulk-absent-list" class="flex-1 overflow-y-auto px-4 pb-3 space-y-1"></div>
+    <!-- フッター -->
+    <div class="px-5 py-4 border-t border-gray-100 flex-shrink-0">
+      <button id="btn-bulk-absent-submit"
+        class="w-full py-3 bg-red-500 text-white rounded-xl text-sm font-bold hover:bg-red-600 active:scale-[.99] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+        disabled>
+        選択した <span id="bulk-absent-count">0</span> 人を欠席にする
+      </button>
+    </div>
   </div>
 </div>
 

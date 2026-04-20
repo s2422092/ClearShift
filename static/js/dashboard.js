@@ -674,6 +674,130 @@ async function saveAbsence(day, memberId) {
   }
 }
 
+// ─── 一括欠席モーダル ──────────────────────────────────────────────────────────
+const modalBulkAbsent   = $('modal-bulk-absent');
+const bulkAbsentSearch  = $('bulk-absent-search');
+const bulkAbsentList    = $('bulk-absent-list');
+const bulkAbsentTags    = $('bulk-absent-tags');
+const bulkAbsentCount   = $('bulk-absent-count');
+const bulkAbsentSubmit  = $('btn-bulk-absent-submit');
+let bulkAbsentSelected  = new Set(); // member_id
+
+function openBulkAbsentModal() {
+  if (!currentDay) { showToast('先に日付を選択してください', true); return; }
+  bulkAbsentSelected = new Set();
+  bulkAbsentSearch.value = '';
+  $('bulk-absent-day-label').textContent = formatDateJa(currentDay) + ' の欠席登録';
+  renderBulkAbsentUI();
+  modalBulkAbsent.classList.remove('hidden');
+  setTimeout(() => bulkAbsentSearch.focus(), 100);
+}
+
+function closeBulkAbsentModal() {
+  modalBulkAbsent.classList.add('hidden');
+}
+
+function formatDateJa(iso) {
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString('ja-JP', { month: 'long', day: 'numeric', weekday: 'short' });
+}
+
+function renderBulkAbsentUI() {
+  const q = bulkAbsentSearch.value.trim();
+  const alreadyAbsent = absentMemberDays.get(currentDay) || new Set();
+
+  // 候補：検索クエリに一致 & 今日まだ全日欠席でない
+  const candidates = members.filter(m => {
+    if (alreadyAbsent.has(m.id)) return false; // すでに欠席済みは除外
+    if (!q) return true;
+    return m.name.includes(q) || (m.department || '').includes(q) || (m.grade || '').includes(q);
+  });
+
+  // タグ（選択済みメンバー）
+  if (bulkAbsentSelected.size > 0) {
+    bulkAbsentTags.classList.remove('hidden');
+    bulkAbsentTags.innerHTML = [...bulkAbsentSelected].map(id => {
+      const m = members.find(x => x.id === id);
+      if (!m) return '';
+      return `<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-600 border border-red-200 rounded-full text-xs font-medium">
+        ${m.name}
+        <button class="bulk-absent-tag-remove hover:text-red-800 leading-none" data-id="${id}">×</button>
+      </span>`;
+    }).join('');
+    bulkAbsentTags.querySelectorAll('.bulk-absent-tag-remove').forEach(btn => {
+      btn.addEventListener('click', () => {
+        bulkAbsentSelected.delete(parseInt(btn.dataset.id));
+        renderBulkAbsentUI();
+      });
+    });
+  } else {
+    bulkAbsentTags.classList.add('hidden');
+  }
+
+  // 候補リスト
+  if (!candidates.length) {
+    bulkAbsentList.innerHTML = `<div class="py-6 text-center text-gray-400 text-sm">${q ? '該当するメンバーがいません' : 'メンバーがいません'}</div>`;
+  } else {
+    bulkAbsentList.innerHTML = candidates.map(m => {
+      const selected = bulkAbsentSelected.has(m.id);
+      return `<button class="bulk-absent-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-left
+        ${selected ? 'bg-red-50 border border-red-200' : 'hover:bg-gray-50 border border-transparent'}"
+        data-id="${m.id}">
+        <div class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold
+          ${selected ? 'bg-red-500 text-white' : 'bg-primary-light text-primary'}">
+          ${selected
+            ? `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>`
+            : m.name[0]}
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-medium ${selected ? 'text-red-700' : 'text-gray-800'}">${m.name}</div>
+          ${(m.department || m.grade) ? `<div class="text-xs text-gray-400">${[m.department, m.grade].filter(Boolean).join(' · ')}</div>` : ''}
+        </div>
+        ${selected ? `<span class="text-xs font-bold text-red-400 flex-shrink-0">選択中</span>` : ''}
+      </button>`;
+    }).join('');
+
+    bulkAbsentList.querySelectorAll('.bulk-absent-item').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = parseInt(btn.dataset.id);
+        if (bulkAbsentSelected.has(id)) {
+          bulkAbsentSelected.delete(id);
+        } else {
+          bulkAbsentSelected.add(id);
+        }
+        renderBulkAbsentUI();
+      });
+    });
+  }
+
+  // 送信ボタン
+  const count = bulkAbsentSelected.size;
+  bulkAbsentCount.textContent = count;
+  bulkAbsentSubmit.disabled = count === 0;
+}
+
+// イベント
+$('btn-bulk-absent')?.addEventListener('click', openBulkAbsentModal);
+document.querySelectorAll('.bulk-absent-close').forEach(el =>
+  el.addEventListener('click', closeBulkAbsentModal)
+);
+bulkAbsentSearch?.addEventListener('input', renderBulkAbsentUI);
+
+bulkAbsentSubmit?.addEventListener('click', async () => {
+  if (!bulkAbsentSelected.size || !currentDay) return;
+  const ids = [...bulkAbsentSelected];
+  closeBulkAbsentModal();
+
+  // 楽観的更新：全員を全日欠席に設定
+  if (!absentMemberDays.has(currentDay)) absentMemberDays.set(currentDay, new Set());
+  ids.forEach(id => absentMemberDays.get(currentDay).add(id));
+  renderShiftBoard();
+  showToast(`${ids.length}人を欠席にしました`);
+
+  // バックグラウンドで全員分を保存
+  await Promise.all(ids.map(id => saveAbsence(currentDay, id)));
+});
+
 function showBoardSkeleton() {
   $('shift-board').innerHTML = `
     <div class="p-6 animate-pulse space-y-3">
