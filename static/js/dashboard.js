@@ -1177,11 +1177,12 @@ function renderShiftBoard() {
           style="min-width:140px;background:${stickyBgColor};${dimStyle}">
           <div class="flex items-center gap-1.5">
             ${m.is_leader ? '<span class="text-yellow-400 text-xs">★</span>' : ''}
-            <div class="flex-1 min-w-0">
-              <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 0;color:${isCopySrc ? '#6D28D9' : '#1f2937'};font-size:12px;font-weight:600">
-                ${m.name}${m.grade ? `<span style="margin-left:4px;font-size:9px;font-weight:400;color:#9ca3af">${m.grade}</span>` : ''}
+            <div class="flex-1 min-w-0" style="padding:3px 0">
+              <div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:3px;color:${isCopySrc ? '#6D28D9' : '#1f2937'}">
+                <span style="font-size:12px;font-weight:600;white-space:nowrap">${m.name}</span>
+                ${m.grade ? `<span style="font-size:9px;font-weight:400;color:#9ca3af;white-space:nowrap">${m.grade}</span>` : ''}
+                ${(m.labels && m.labels.length) ? m.labels.map(l => `<span style="padding:1px 5px;background:#ede9fe;color:#7c3aed;font-size:8px;font-weight:500;border-radius:999px;border:1px solid rgba(124,58,237,0.2);line-height:1.5;white-space:nowrap">${l}</span>`).join('') : ''}
               </div>
-              ${(m.labels && m.labels.length) ? `<div style="display:flex;flex-wrap:wrap;gap:2px;margin-bottom:2px">${m.labels.map(l => `<span style="padding:1px 5px;background:#ede9fe;color:#7c3aed;font-size:8px;font-weight:500;border-radius:999px;border:1px solid rgba(124,58,237,0.2);line-height:1.4">${l}</span>`).join('')}</div>` : ''}
             </div>
             <button class="btn-board-copy flex-shrink-0 transition-colors ${isCopySrc ? 'text-purple-500' : 'text-gray-300 hover:text-purple-400'}"
               data-mid="${m.id}" title="${isCopySrc ? 'コピー元（クリックで解除）' : 'このメンバーのシフトをコピー'}">
@@ -2688,7 +2689,13 @@ function renderMemberDetailBody(m) {
     await saveLabels(m, newLabels);
   };
   $('btn-label-add').addEventListener('click', addLabel);
-  labelInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addLabel(); } });
+  // IME変換中（日本語入力）のEnterは無視し、変換確定後の2回目のEnterで追加する
+  labelInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.isComposing) {
+      e.preventDefault();
+      addLabel();
+    }
+  });
 
   // ラベル削除
   $('member-detail-body').querySelectorAll('.label-remove-btn').forEach(btn => {
