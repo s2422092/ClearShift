@@ -118,6 +118,14 @@ def create_app():
     if not os.environ.get('VERCEL'):
         with app.app_context():
             db.create_all()
+            # labels_json カラムが未存在なら追加（既存 DB への後付けマイグレーション）
+            try:
+                db.session.execute(db.text(
+                    "ALTER TABLE event_members ADD COLUMN labels_json TEXT"
+                ))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()  # 既に存在する場合は無視
 
     return app
 

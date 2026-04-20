@@ -451,7 +451,19 @@ def api_update_member(event_id, member_id):
     data = request.get_json()
     if 'is_leader' in data:
         member.is_leader = bool(data['is_leader'])
+    if 'labels' in data:
+        labels = data['labels']
+        member.labels_json = _jdump(labels) if labels else None
+    if 'name' in data:
+        member.name = (data['name'] or '').strip() or member.name
+    if 'grade' in data:
+        member.grade = (data['grade'] or '').strip() or None
+    if 'department' in data:
+        member.department = (data['department'] or '').strip() or None
+    if 'email' in data:
+        member.email = (data['email'] or '').strip() or None
     db.session.commit()
+    _invalidate_event_cache(event_id)
     return jsonify(member.to_dict())
 
 

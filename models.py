@@ -96,9 +96,19 @@ class EventMember(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     is_leader = db.Column(db.Boolean, default=False, nullable=False)
+    labels_json = db.Column(db.Text, nullable=True)  # ["飲食代表", "OO代表", ...]
 
     availabilities = db.relationship('Availability', backref='member', lazy=True, cascade='all, delete-orphan')
     assignments = db.relationship('ShiftAssignment', backref='member', lazy=True, cascade='all, delete-orphan')
+
+    def get_labels(self):
+        import json
+        if self.labels_json:
+            try:
+                return json.loads(self.labels_json)
+            except Exception:
+                return []
+        return []
 
     def to_dict(self):
         return {
@@ -109,6 +119,7 @@ class EventMember(db.Model):
             'grade': self.grade,
             'department': self.department,
             'is_leader': self.is_leader,
+            'labels': self.get_labels(),
         }
 
 

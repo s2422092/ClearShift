@@ -2531,29 +2531,56 @@ document.querySelectorAll('.member-detail-close').forEach(b =>
 function openMemberDetail(memberId) {
   const m = members.find(x => x.id === memberId);
   if (!m) return;
+  renderMemberDetailBody(m);
+  modalMemberDetail.classList.remove('hidden');
+}
 
-  // シフト担当回数を集計
+function renderMemberDetailBody(m) {
   let shiftCount = 0;
-  slots.forEach(s => {
-    if (s.assignments.some(a => a.member_id === memberId)) shiftCount++;
-  });
+  slots.forEach(s => { if (s.assignments.some(a => a.member_id === m.id)) shiftCount++; });
 
+  const labels = m.labels || [];
   const infoRows = [
-    { label: '学年',         value: m.grade || '未設定', isEmail: false },
-    { label: '局・グループ', value: m.department || '未設定', isEmail: false },
+    { label: '学年',         value: m.grade || '未設定' },
+    { label: '局・グループ', value: m.department || '未設定' },
     { label: 'Gmail',        value: m.email || '未設定', isEmail: !!m.email },
-    { label: 'シフト担当数', value: `${shiftCount}回`, isEmail: false },
+    { label: 'シフト担当数', value: `${shiftCount}回` },
   ];
 
   $('member-detail-body').innerHTML = `
-    <div class="flex flex-col items-center mb-5">
+    <div class="flex flex-col items-center mb-4">
       <div class="w-14 h-14 rounded-full bg-primary-light flex items-center justify-center mb-3">
         <span class="text-2xl font-bold text-primary">${m.name[0]}</span>
       </div>
       <div class="text-base font-bold text-gray-900">${m.name}</div>
       ${m.department ? `<div class="text-xs text-gray-400 mt-0.5">${m.department}${m.grade ? ' · ' + m.grade : ''}</div>` : ''}
     </div>
-    <div class="space-y-2">
+
+    <!-- ラベル（カテゴリー）セクション -->
+    <div class="mb-4">
+      <div class="flex items-center justify-between mb-1.5">
+        <span class="text-xs font-semibold text-gray-500">ラベル</span>
+        <span class="text-[10px] text-gray-400">Enter で追加</span>
+      </div>
+      <!-- 既存ラベル -->
+      <div id="label-tags" class="flex flex-wrap gap-1.5 mb-2 min-h-[24px]">
+        ${labels.map((l, i) => `
+          <span class="label-tag inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-primary-light text-primary border border-primary/20">
+            ${l}
+            <button class="label-remove-btn hover:text-red-500 transition-colors leading-none" data-idx="${i}">×</button>
+          </span>`).join('')}
+        ${labels.length === 0 ? '<span class="text-xs text-gray-300">ラベルなし</span>' : ''}
+      </div>
+      <!-- ラベル追加入力 -->
+      <div class="flex gap-2">
+        <input id="label-input" type="text" placeholder="例: 飲食代表、〇〇係..."
+          class="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30">
+        <button id="btn-label-add"
+          class="px-3 py-2 bg-primary text-white text-xs font-bold rounded-lg hover:bg-primary-dark transition-colors whitespace-nowrap">追加</button>
+      </div>
+    </div>
+
+    <div class="space-y-2 border-t border-gray-100 pt-3">
       ${infoRows.map(f => `
         <div class="flex items-center justify-between px-3 py-2 bg-surface rounded-lg gap-3">
           <span class="text-xs text-gray-500 flex-shrink-0">${f.label}</span>
@@ -2561,12 +2588,53 @@ function openMemberDetail(memberId) {
             ? `<a href="mailto:${f.value}" class="text-sm font-medium text-primary hover:underline truncate">${f.value}</a>`
             : `<span class="text-sm font-medium text-gray-800 truncate">${f.value}</span>`
           }
-        </div>
-      `).join('')}
+        </div>`).join('')}
     </div>
   `;
 
-  modalMemberDetail.classList.remove('hidden');
+  // ラベル追加
+  const labelInput = $('label-input');
+  const addLabel = async () => {
+    const val = labelInput.value.trim();
+    if (!val) return;
+    const newLabels = [...(m.labels || []), val];
+    labelInput.value = '';
+    await saveLabels(m, newLabels);
+  };
+  $('btn-label-add').addEventListener('click', addLabel);
+  labelInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addLabel(); } });
+
+  // ラベル削除
+  $('member-detail-body').querySelectorAll('.label-remove-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const idx = parseInt(btn.dataset.idx);
+      const newLabels = (m.labels || []).filter((_, i) => i !== idx);
+      await saveLabels(m, newLabels);
+    });
+  });
+}
+
+async function saveLabels(m, newLabels) {
+  const prev = m.labels || [];
+  m.labels = newLabels;
+  renderMemberDetailBody(m);  // 即時反映
+  renderMemberList();
+
+  try {
+    const updated = await apiFetch(`/api/events/${EVENT_ID}/members/${m.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ labels: newLabels }),
+    });
+    const idx = members.findIndex(x => x.id === m.id);
+    if (idx !== -1) members[idx] = updated;
+    renderMemberList();
+    renderShiftBoard();
+  } catch {
+    m.labels = prev;
+    renderMemberDetailBody(m);
+    renderMemberList();
+    showToast('ラベルの保存に失敗しました。', true);
+  }
 }
 
 // ─── Copy URL ─────────────────────────────────────────────────────────────────

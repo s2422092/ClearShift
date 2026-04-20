@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS event_members (
     grade       VARCHAR(50),
     department  VARCHAR(100),
     created_at  TIMESTAMP    NOT NULL DEFAULT NOW(),
-    is_leader   BOOLEAN      NOT NULL DEFAULT FALSE
+    is_leader   BOOLEAN      NOT NULL DEFAULT FALSE,
+    labels_json TEXT                              -- ["飲食代表", "OO代表", ...]
 );
 
 -- 仕事カテゴリー（メンバーグループ定義）
