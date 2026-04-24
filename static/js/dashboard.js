@@ -1122,9 +1122,10 @@ function renderShiftBoard() {
     const memberRows = deptMembers.map(m => {
       const isSearchMatch = boardSearchQuery && m.name.includes(boardSearchQuery);
       const isSearchDim   = boardSearchQuery && !isSearchMatch;
-      const isCopySrc  = copySourceMemberId === m.id;
-      const isCopyTgt  = isCopyMode && copySourceMemberId !== m.id;
-      const leaderBg   = m.is_leader ? 'background:#FEFCE8;' : '';
+      const isCopySrc    = copySourceMemberId === m.id;
+      const isCopyAdded  = isCopyMode && copyTargetIds.has(m.id);   // コピー先リストに追加済み
+      const isCopyTgt    = isCopyMode && !isCopySrc && !isCopyAdded; // 未追加の候補
+      const leaderBg     = m.is_leader ? 'background:#FEFCE8;' : '';
 
       const isFullAbsent = dayAbsentSet.has(m.id);
       const memberRangeSet = dayRangeMap.get(m.id);
@@ -1168,6 +1169,7 @@ function renderShiftBoard() {
 
       // sticky列の不透明背景色（スクロール時に後ろのセルが透けないよう必ず solid にする）
       const stickyBgColor = isCopySrc    ? '#F0EBFF'
+                          : isCopyAdded  ? '#F0FDF4'   // 追加済み → 薄緑
                           : isSearchMatch ? '#EFF6FF'
                           : m.is_leader   ? '#FEFCE8'
                           : '#FFFFFF';
@@ -1179,9 +1181,10 @@ function renderShiftBoard() {
           <div class="flex items-center gap-1.5">
             ${m.is_leader ? '<span class="text-yellow-400 text-xs">★</span>' : ''}
             <div class="flex-1 min-w-0" style="padding:3px 0">
-              <div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:3px;color:${isCopySrc ? '#6D28D9' : '#1f2937'}">
+              <div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:3px;color:${isCopySrc ? '#6D28D9' : isCopyAdded ? '#16a34a' : '#1f2937'}">
                 <span style="font-size:12px;font-weight:600;white-space:nowrap">${m.name}</span>
                 ${m.grade ? `<span style="font-size:9px;font-weight:400;color:#9ca3af;white-space:nowrap">${m.grade}</span>` : ''}
+                ${isCopyAdded ? `<span style="padding:1px 5px;background:#dcfce7;color:#16a34a;font-size:8px;font-weight:600;border-radius:999px;border:1px solid #86efac;line-height:1.5;white-space:nowrap">✓ 追加済み</span>` : ''}
                 ${(m.labels && m.labels.length) ? m.labels.map(l => `<span style="padding:1px 5px;background:#ede9fe;color:#7c3aed;font-size:8px;font-weight:500;border-radius:999px;border:1px solid rgba(124,58,237,0.2);line-height:1.5;white-space:nowrap">${l}</span>`).join('') : ''}
               </div>
             </div>
@@ -1242,7 +1245,7 @@ function renderShiftBoard() {
       if (bulkDeleteMode) return; // 一括削除モード中は空セルクリック無効
       if (isCopyMode && copySourceMemberId !== parseInt(cell.dataset.member)) {
         e.stopPropagation();
-        handleBoardCopyClick(parseInt(cell.dataset.member));
+        addCopyTarget(parseInt(cell.dataset.member));
         return;
       }
       handleBoardCellClick(parseInt(cell.dataset.member), cell.dataset.time, cols);
@@ -1275,7 +1278,7 @@ function renderShiftBoard() {
         const targetMid = parseInt(cell.dataset.member);
         if (targetMid !== copySourceMemberId) {
           e.stopPropagation();
-          handleBoardCopyClick(targetMid);
+          addCopyTarget(targetMid);
         }
         return;
       }
@@ -1283,12 +1286,12 @@ function renderShiftBoard() {
     });
   });
 
-  // 名前・局列（コピーモード時のみ）
+  // 名前・局列（コピーモード時のみ）→ リストに追加
   board.querySelectorAll('tr[data-member-row]').forEach(row => {
     row.addEventListener('click', () => {
       if (!isCopyMode) return;
       const targetMid = parseInt(row.dataset.memberRow);
-      if (targetMid !== copySourceMemberId) handleBoardCopyClick(targetMid);
+      if (targetMid !== copySourceMemberId) addCopyTarget(targetMid);
     });
   });
 
@@ -1360,12 +1363,12 @@ function renderShiftBoard() {
     });
   });
 
-  // メンバー名セルクリック（コピーモード時のみコピー対象として機能）
+  // メンバー名セルクリック（コピーモード時のみ）→ リストに追加
   board.querySelectorAll('.btn-member-row-action').forEach(td => {
     td.addEventListener('click', () => {
       if (!isCopyMode) return;
       const targetMid = parseInt(td.dataset.mid);
-      if (targetMid !== copySourceMemberId) handleBoardCopyClick(targetMid);
+      if (targetMid !== copySourceMemberId) addCopyTarget(targetMid);
     });
   });
 
@@ -1463,20 +1466,71 @@ function updateBoardHint() {
   }
 }
 
+// コピー元のシフトを対象メンバーへ楽観的に適用し、仮割り当てリストを返す
+function _applyOptimisticCopy(srcId, targetMemberId) {
+  const tgt = members.find(x => x.id === targetMemberId);
+  const tempAssignments = [];
+  slots.forEach(slot => {
+    const hasSrc = slot.assignments.some(a => a.member_id === srcId);
+    const hasTgt = slot.assignments.some(a => a.member_id === targetMemberId);
+    if (!hasSrc || hasTgt) return;
+    // 時間帯重複チェック（コピー先が別スロットと被る場合はスキップ）
+    const hasOverlap = slots.some(other =>
+      other.id !== slot.id &&
+      other.date === slot.date &&
+      other.start_time < slot.end_time &&
+      other.end_time > slot.start_time &&
+      other.assignments.some(a => a.member_id === targetMemberId)
+    );
+    if (hasOverlap) return;
+    const tempA = {
+      id: _nextTempId(),
+      slot_id: slot.id,
+      member_id: targetMemberId,
+      member_name: tgt?.name || '',
+      member_department: tgt?.department || '',
+      status: 'scheduled',
+      _pending: true,
+    };
+    slot.assignments.push(tempA);
+    tempAssignments.push({ slot, assignment: tempA });
+  });
+  return tempAssignments;
+}
+
+// 楽観的に追加した仮割り当てをロールバック
+function _rollbackOptimisticCopy(tempAssignments) {
+  tempAssignments.forEach(({ slot, assignment }) => {
+    slot.assignments = slot.assignments.filter(a => a.id !== assignment.id);
+  });
+}
+
 async function handleBoardCopyClick(targetMemberId) {
   if (copySourceMemberId === null || copySourceMemberId === targetMemberId) return;
   const src = members.find(x => x.id === copySourceMemberId);
   const tgt = members.find(x => x.id === targetMemberId);
+  const srcId = copySourceMemberId;
+
+  // ── 楽観的更新（即時反映） ──────────────────────────────────────────────
+  const tempAssignments = _applyOptimisticCopy(srcId, targetMemberId);
+  copySourceMemberId = null;
+  closeCopyTargetDropdown();
+  updateBoardHint();
+  renderShiftBoard();
+  showToast(`「${src?.name || ''}」→「${tgt?.name || ''}」にシフトをコピーしました`);
+
+  // ── バックグラウンドAPI ──────────────────────────────────────────────────
   try {
-    const res = await apiFetch(`/api/events/${EVENT_ID}/members/${copySourceMemberId}/copy-to/${targetMemberId}`, {
-      method: 'POST',
+    const res = await apiFetch(`/api/events/${EVENT_ID}/members/${srcId}/copy-to/${targetMemberId}`, { method: 'POST' });
+    const skippedMsg = res.skipped ? `・${res.skipped}件は重複のためスキップ` : '';
+    if (skippedMsg) showToast(`コピー完了（${res.copied}件${skippedMsg}）`);
+    // 仮IDを実IDに差し替え
+    tempAssignments.forEach(({ assignment }) => {
+      assignment._pending = false;
     });
-    copySourceMemberId = null;
-    closeCopyTargetDropdown();
-    await loadShifts();
-    const skippedMsg = res.skipped ? `・${res.skipped}件は時間帯重複のためスキップ` : '';
-    showToast(`「${src?.name || ''}」→「${tgt?.name || ''}」にシフトをコピーしました（${res.copied}件${skippedMsg}）`);
   } catch (err) {
+    _rollbackOptimisticCopy(tempAssignments);
+    renderShiftBoard();
     showToast(err.message, true);
   }
 }
@@ -1725,34 +1779,58 @@ function addCopyTarget(mid) {
   closeCopyTargetDropdown();
   renderCopyTargetChips();
   updateCopyExecuteBtn();
+  renderShiftBoard(); // 追加済みバッジをボード上に即時反映
   $('copy-target-input')?.focus();
 }
 
 async function executeCopyToTargets() {
   if (copySourceMemberId === null || copyTargetIds.size === 0) return;
   const src = members.find(x => x.id === copySourceMemberId);
-  let totalCopied = 0;
-  const names = [];
-  for (const targetMid of copyTargetIds) {
-    const tgt = members.find(x => x.id === targetMid);
-    try {
-      const res = await apiFetch(`/api/events/${EVENT_ID}/members/${copySourceMemberId}/copy-to/${targetMid}`, {
-        method: 'POST',
-      });
-      totalCopied += res.copied || 0;
-      names.push(tgt?.name || '');
-    } catch (err) {
-      showToast(`${tgt?.name || ''}: ${err.message}`, true);
-    }
-  }
+  const srcId = copySourceMemberId;
+  const targetIds = [...copyTargetIds];
+
+  // ── 楽観的更新（全コピー先を即時反映） ─────────────────────────────────
+  const allTemp = [];
+  targetIds.forEach(targetMid => {
+    allTemp.push(..._applyOptimisticCopy(srcId, targetMid));
+  });
+
   copySourceMemberId = null;
   copyTargetIds.clear();
   closeCopyTargetDropdown();
   renderCopyTargetChips();
   updateCopyExecuteBtn();
   updateBoardHint();
-  await loadShifts();
-  if (names.length > 0) showToast(`「${src?.name || ''}」→「${names.join('・')}」にコピーしました（${totalCopied}件）` + (totalCopied === 0 ? '・時間帯重複のためすべてスキップされました' : ''));
+  renderShiftBoard();
+  const names = targetIds.map(mid => members.find(x => x.id === mid)?.name || '').filter(Boolean);
+  showToast(`「${src?.name || ''}」→「${names.join('・')}」にシフトをコピーしました`);
+
+  // ── バックグラウンドAPI（並列送信） ─────────────────────────────────────
+  let totalCopied = 0;
+  const failedNames = [];
+  const failedTemps = [];
+  await Promise.all(targetIds.map(async (targetMid) => {
+    const tgt = members.find(x => x.id === targetMid);
+    try {
+      const res = await apiFetch(`/api/events/${EVENT_ID}/members/${srcId}/copy-to/${targetMid}`, { method: 'POST' });
+      totalCopied += res.copied || 0;
+    } catch (err) {
+      failedNames.push(tgt?.name || '');
+      // 失敗したコピー先の仮割り当てだけロールバック
+      const myTemps = allTemp.filter(t => t.assignment.member_id === targetMid);
+      failedTemps.push(...myTemps);
+      showToast(`${tgt?.name || ''}: ${err.message}`, true);
+    }
+  }));
+
+  if (failedTemps.length > 0) {
+    _rollbackOptimisticCopy(failedTemps);
+    renderShiftBoard();
+  }
+  // 成功分の仮フラグを解除
+  allTemp.filter(t => !failedTemps.includes(t)).forEach(({ assignment }) => {
+    assignment._pending = false;
+  });
 }
 
 $('copy-target-input').addEventListener('input', function() {
