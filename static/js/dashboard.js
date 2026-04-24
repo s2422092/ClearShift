@@ -1774,12 +1774,17 @@ function renderCopyTargetChips() {
 }
 
 function addCopyTarget(mid) {
-  if (mid === copySourceMemberId || copyTargetIds.has(mid)) return;
-  copyTargetIds.add(mid);
+  if (mid === copySourceMemberId) return;
+  // 既に追加済みならキャンセル（トグル）
+  if (copyTargetIds.has(mid)) {
+    copyTargetIds.delete(mid);
+  } else {
+    copyTargetIds.add(mid);
+  }
   closeCopyTargetDropdown();
   renderCopyTargetChips();
   updateCopyExecuteBtn();
-  renderShiftBoard(); // 追加済みバッジをボード上に即時反映
+  renderShiftBoard();
   $('copy-target-input')?.focus();
 }
 

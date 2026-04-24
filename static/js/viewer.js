@@ -79,6 +79,7 @@ async function loadMyShifts() {
   if (cached) {
     myShifts = cached.data;
     renderMyShifts();
+    renderViewerNotifPanel();
   }
 
   // TTLに関わらず常にバックグラウンドで最新データを取得
@@ -91,6 +92,7 @@ async function loadMyShifts() {
       myShifts = fresh;
       renderMyShifts();
     }
+    renderViewerNotifPanel(); // バッジを最新状態に更新
   } catch (err) {
     if (!myShifts.length) {
       list.innerHTML = `<div class="text-center py-10 text-red-400 text-sm">${err.message}</div>`;
@@ -508,6 +510,7 @@ async function reportMyStatus(slotId, status) {
     if (shift) shift.status = status;
     _lsSet(myShifts);
     renderMyShiftContent();
+    renderViewerNotifPanel();
     showReportToast(status);
   } catch {
     alert('送信に失敗しました。もう一度お試しください。');
@@ -596,6 +599,115 @@ $('btn-download-myshift-pdf')?.addEventListener('click', async function () {
     this.disabled = false;
   }
 });
+
+// ─── 通知パネル ───────────────────────────────────────────────────────────────
+
+function renderViewerNotifPanel() {
+  const list = $('viewer-notif-list');
+  if (!list) return;
+
+  // 欠席・遅刻のシフトを抽出
+  const reported = myShifts.filter(s => s.status === 'absent' || s.status === 'late');
+  const scheduled = myShifts.filter(s => s.status === 'scheduled');
+
+  if (!myShifts.length) {
+    list.innerHTML = `<p class="text-xs text-gray-400 py-6 text-center">シフト情報がありません</p>`;
+    return;
+  }
+
+  let html = '';
+
+  // 報告済みの欠席・遅刻
+  if (reported.length) {
+    html += `<div class="py-2">
+      <p class="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">報告済み</p>
+      <div class="space-y-2">`;
+    reported.forEach(s => {
+      const isAbsent = s.status === 'absent';
+      const color = isAbsent ? 'bg-red-50 border-red-200 text-red-600' : 'bg-amber-50 border-amber-200 text-amber-600';
+      const label = isAbsent ? '欠席' : '遅刻';
+      html += `
+        <div class="flex items-center justify-between p-2.5 rounded-xl border ${color}">
+          <div class="min-w-0">
+            <div class="text-xs font-semibold truncate">${s.role || s.job_title || 'シフト'}</div>
+            <div class="text-[10px] opacity-70">${s.date} ${s.start_time}〜${s.end_time}</div>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0 ml-2">
+            <span class="text-[10px] font-bold">${label}中</span>
+            <button class="notif-cancel-btn text-[10px] underline opacity-60 hover:opacity-100"
+              data-slot="${s.slot_id}">取消</button>
+          </div>
+        </div>`;
+    });
+    html += `</div></div>`;
+  }
+
+  // 予定中のシフト（報告ボタン付き）
+  if (scheduled.length) {
+    html += `<div class="py-2">
+      <p class="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">シフト予定</p>
+      <div class="space-y-2">`;
+    scheduled.forEach(s => {
+      html += `
+        <div class="flex items-center justify-between p-2.5 rounded-xl bg-surface border border-gray-100">
+          <div class="min-w-0">
+            <div class="text-xs font-semibold text-gray-800 truncate">${s.role || s.job_title || 'シフト'}</div>
+            <div class="text-[10px] text-gray-400">${s.date} ${s.start_time}〜${s.end_time}</div>
+          </div>
+          <div class="flex gap-1.5 flex-shrink-0 ml-2">
+            <button class="notif-report-btn px-2 py-1 text-[10px] font-bold rounded-lg bg-white border border-red-200 text-red-400 hover:bg-red-50 transition-colors"
+              data-slot="${s.slot_id}" data-status="absent">欠席</button>
+            <button class="notif-report-btn px-2 py-1 text-[10px] font-bold rounded-lg bg-white border border-amber-200 text-amber-500 hover:bg-amber-50 transition-colors"
+              data-slot="${s.slot_id}" data-status="late">遅刻</button>
+          </div>
+        </div>`;
+    });
+    html += `</div></div>`;
+  }
+
+  list.innerHTML = html || `<p class="text-xs text-gray-400 py-6 text-center">シフトがありません</p>`;
+
+  // バッジ（欠席・遅刻の報告があれば表示）
+  const badge = $('viewer-notif-badge');
+  if (badge) badge.classList.toggle('hidden', reported.length === 0);
+
+  // ボタンのイベント
+  list.querySelectorAll('.notif-report-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await reportMyStatus(parseInt(btn.dataset.slot), btn.dataset.status);
+      renderViewerNotifPanel();
+    });
+  });
+  list.querySelectorAll('.notif-cancel-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await reportMyStatus(parseInt(btn.dataset.slot), 'scheduled');
+      renderViewerNotifPanel();
+    });
+  });
+}
+
+function openViewerNotifPanel() {
+  renderViewerNotifPanel();
+  $('viewer-notif-panel')?.classList.remove('hidden');
+  $('viewer-notif-overlay')?.classList.remove('hidden');
+}
+
+function closeViewerNotifPanel() {
+  $('viewer-notif-panel')?.classList.add('hidden');
+  $('viewer-notif-overlay')?.classList.add('hidden');
+}
+
+$('btn-viewer-notif')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const panel = $('viewer-notif-panel');
+  if (panel?.classList.contains('hidden')) {
+    openViewerNotifPanel();
+  } else {
+    closeViewerNotifPanel();
+  }
+});
+$('btn-viewer-notif-close')?.addEventListener('click', closeViewerNotifPanel);
+$('viewer-notif-overlay')?.addEventListener('click', closeViewerNotifPanel);
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 loadMyShifts();
