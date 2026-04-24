@@ -66,7 +66,7 @@ def api_my_shifts(event_id):
     if not member:
         return jsonify({'error': 'ログインしてください。'}), 401
 
-    cache_key = f'viewer_my_shifts_v2_{event_id}_{member.id}'
+    cache_key = f'viewer_my_shifts_v3_{event_id}_{member.id}'
     cached = cache.get(cache_key)
     if cached is not None:
         return jsonify(cached)
@@ -122,6 +122,7 @@ def api_my_shifts(event_id):
                 if overlaps and not any(c['member_id'] == cm.id for c in bucket):
                     bucket.append({
                         'member_id': cm.id,
+                        'slot_id': cs.id,
                         'name': cm.name,
                         'department': cm.department,
                         'grade': cm.grade,
@@ -317,7 +318,7 @@ def api_report_status(event_id):
     db.session.commit()
 
     # ステータス変更時はビューアーキャッシュを無効化
-    cache.delete(f'viewer_my_shifts_v2_{event_id}_{member.id}')
+    cache.delete(f'viewer_my_shifts_v3_{event_id}_{member.id}')
     cache.delete(f'viewer_shifts_{event_id}')
 
     return jsonify({'ok': True, 'status': status})
@@ -332,17 +333,18 @@ def api_report_partner_absent(event_id):
         return jsonify({'error': 'ログインしてください。'}), 401
 
     data = request.get_json()
-    slot_id = data.get('slot_id')
+    reporter_slot_id = data.get('reporter_slot_id') or data.get('slot_id')
+    target_slot_id   = data.get('target_slot_id')   or data.get('slot_id')
     target_member_id = data.get('member_id')
 
     reporter_assignment = ShiftAssignment.query.filter_by(
-        slot_id=slot_id, member_id=reporter.id
+        slot_id=reporter_slot_id, member_id=reporter.id
     ).first()
     if not reporter_assignment:
         return jsonify({'error': '報告者がこのシフトに割り当てられていません。'}), 403
 
     target_assignment = ShiftAssignment.query.filter_by(
-        slot_id=slot_id, member_id=target_member_id
+        slot_id=target_slot_id, member_id=target_member_id
     ).first()
     if not target_assignment:
         return jsonify({'error': '対象メンバーが見つかりません。'}), 404
@@ -353,7 +355,7 @@ def api_report_partner_absent(event_id):
     db.session.commit()
 
     # ステータス変更時はビューアーキャッシュを無効化
-    cache.delete(f'viewer_my_shifts_v2_{event_id}_{target_member_id}')
+    cache.delete(f'viewer_my_shifts_v3_{event_id}_{target_member_id}')
     cache.delete(f'viewer_shifts_{event_id}')
 
     return jsonify({'ok': True})

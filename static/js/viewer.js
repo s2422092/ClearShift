@@ -214,7 +214,7 @@ function renderMyShiftContent() {
                   </div>
                   <button class="partner-absent-btn flex-shrink-0 text-[10px] font-medium px-2 py-1 rounded-md border transition-colors
                     ${c.status === 'absent' ? 'bg-red-500 text-white border-red-500' : 'bg-white text-red-400 border-red-200 hover:bg-red-50'}"
-                    data-slot="${s.slot_id}" data-member="${c.member_id}" data-name="${c.name}">
+                    data-slot="${s.slot_id}" data-target-slot="${c.slot_id || s.slot_id}" data-member="${c.member_id}" data-name="${c.name}">
                     ${c.status === 'absent' ? '報告済み' : 'いない'}
                   </button>
                 </div>`).join('')}
@@ -278,6 +278,7 @@ function renderMyShiftContent() {
         btn.dataset.name,
         parseInt(btn.dataset.slot),
         parseInt(btn.dataset.member),
+        parseInt(btn.dataset.targetSlot),
       );
     });
   });
@@ -320,16 +321,20 @@ function renderMyShifts() {
 // ── 欠席確認モーダル ──────────────────────────────────────────────────────────
 let _absentConfirmCallback = null;
 
-function showAbsentConfirm(name, slotId, memberId) {
+function showAbsentConfirm(name, slotId, memberId, targetSlotId) {
   $('confirm-absent-msg').textContent = `${name} さんが来ていないことを報告しますか？`;
   $('modal-confirm-absent').classList.remove('hidden');
   _absentConfirmCallback = async () => {
     $('modal-confirm-absent').classList.add('hidden');
     try {
-      const res = await fetch(`/event/${EVENT_ID}/api/report-partner-absent`, {
+      const res = await fetch(`${_API_ROOT}/event/${EVENT_ID}/api/report-partner-absent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slot_id: slotId, member_id: memberId }),
+        body: JSON.stringify({
+          reporter_slot_id: slotId,
+          target_slot_id: targetSlotId || slotId,
+          member_id: memberId,
+        }),
       });
       if (!res.ok) throw new Error();
       const shift = myShifts.find(s => s.slot_id === slotId);
