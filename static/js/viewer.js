@@ -369,6 +369,28 @@ function showReportToast(status) {
   setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 2500);
 }
 
+// ─── リンクコピー ─────────────────────────────────────────────────────────────
+$('btn-copy-viewer-link')?.addEventListener('click', async () => {
+  const url = location.href;
+  try {
+    await navigator.clipboard.writeText(url);
+    showLinkCopyToast(true);
+  } catch {
+    showLinkCopyToast(false);
+  }
+});
+
+function showLinkCopyToast(success) {
+  const toast = document.createElement('div');
+  toast.className = 'fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white shadow-lg transition-opacity';
+  toast.style.background = success ? '#10b981' : '#6B7280';
+  toast.innerHTML = success
+    ? `<svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>リンクをコピーしました`
+    : 'コピーに失敗しました';
+  document.body.appendChild(toast);
+  setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 2500);
+}
+
 // ─── シフト詳細モーダル ────────────────────────────────────────────────────────
 function openShiftDetailModal(shift) {
   const color = shift.job_color || '#4DA3FF';

@@ -1,7 +1,6 @@
 from flask import Blueprint, render_template, redirect, url_for, request, jsonify, session
 from models import db, Event, EventMember, ShiftSlot, ShiftAssignment, Availability, JobType
 from sqlalchemy.orm import joinedload
-from sqlalchemy import and_, or_
 from datetime import date, datetime
 from extensions import cache
 
@@ -88,48 +87,29 @@ def api_my_shifts(event_id):
     # クエリ2: ジョブタイプ（小テーブル）
     jobs = {j.id: j for j in JobType.query.filter_by(event_id=event_id).all()}
 
-    # クエリ3: 時間帯が重なる全スロットのメンバーを取得
-    # slot_id の完全一致ではなく「同日・時間帯オーバーラップ」で判定する
-    # [A_start, A_end) と [B_start, B_end) が重なる条件: A_start < B_end AND B_start < A_end
+    # クエリ3: 同じスロット（slot_id完全一致）に割り当てられたメンバーのみ取得
     colleagues_by_slot: dict = {}
     if assignments:
-        overlap_conditions = [
-            and_(
-                ShiftSlot.event_id == event_id,
-                ShiftSlot.date == a.slot.date,
-                ShiftSlot.start_time < a.slot.end_time,
-                ShiftSlot.end_time > a.slot.start_time,
-                ShiftSlot.id != a.slot.id,
-            )
-            for a in assignments
-        ]
+        my_slot_ids = [a.slot_id for a in assignments]
         colleague_rows = (
-            db.session.query(ShiftAssignment, EventMember, ShiftSlot)
-            .join(ShiftSlot, ShiftAssignment.slot_id == ShiftSlot.id)
+            db.session.query(ShiftAssignment, EventMember)
             .join(EventMember, ShiftAssignment.member_id == EventMember.id)
             .filter(
+                ShiftAssignment.slot_id.in_(my_slot_ids),
                 ShiftAssignment.member_id != member.id,
-                or_(*overlap_conditions),
             )
             .all()
         )
-        # 各同僚スロットが自分のどのスロットと重なるか逆引きしてマッピング
-        for ca, cm, cs in colleague_rows:
-            for a in assignments:
-                s = a.slot
-                if (cs.date == s.date
-                        and cs.start_time < s.end_time
-                        and cs.end_time > s.start_time):
-                    bucket = colleagues_by_slot.setdefault(s.id, [])
-                    # 同一メンバーの重複を避ける（複数スロットが重なる場合）
-                    if not any(c['member_id'] == cm.id for c in bucket):
-                        bucket.append({
-                            'member_id': cm.id,
-                            'name': cm.name,
-                            'department': cm.department,
-                            'grade': cm.grade,
-                            'status': ca.status,
-                        })
+        for ca, cm in colleague_rows:
+            bucket = colleagues_by_slot.setdefault(ca.slot_id, [])
+            if not any(c['member_id'] == cm.id for c in bucket):
+                bucket.append({
+                    'member_id': cm.id,
+                    'name': cm.name,
+                    'department': cm.department,
+                    'grade': cm.grade,
+                    'status': ca.status,
+                })
 
     result = []
     for a in assignments:
