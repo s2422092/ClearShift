@@ -3449,11 +3449,16 @@ async function loadNotifications() {
 function renderNotifList(items) {
   const list = $('notif-list');
   if (!items.length) {
-    list.innerHTML = '<div class="py-8 text-center text-gray-400 text-sm">報告はありません</div>';
+    list.innerHTML = '<div class="py-12 text-center text-gray-400 text-sm">報告はありません</div>';
     return;
   }
-  list.innerHTML = items.map(n => {
+
+  const pending  = items.filter(n => !n.resolved);
+  const resolved = items.filter(n =>  n.resolved);
+
+  const renderItem = n => {
     const color = n.resolved ? '#9CA3AF' : (STATUS_COLOR_NOTIF[n.status] || '#6B7280');
+    const bgLight = n.status === 'absent' ? '#FEF2F2' : n.status === 'late' ? '#FFFBEB' : '#F9FAFB';
     const label = STATUS_JP[n.status] || n.status;
     const d = new Date(n.date + 'T00:00:00');
     const dateStr = d.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' });
@@ -3461,26 +3466,49 @@ function renderNotifList(items) {
       ? new Date(n.reported_at).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
       : '';
     return `
-      <div class="px-4 py-3 ${n.resolved ? 'opacity-50' : ''}">
-        <div class="flex items-start gap-3">
-          <div class="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style="background:${color}"></div>
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2 flex-wrap">
-              <span class="text-sm font-semibold text-gray-800">${n.member_name}</span>
-              ${n.member_department ? `<span class="text-xs text-gray-400">${n.member_department}</span>` : ''}
-              <span class="text-xs font-bold px-1.5 py-0.5 rounded-full text-white" style="background:${color}">${label}</span>
+      <div class="py-3 ${n.resolved ? 'opacity-60' : ''}">
+        <div class="rounded-xl border p-3.5" style="background:${n.resolved ? '#F9FAFB' : bgLight};border-color:${color}30">
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 flex-wrap mb-1">
+                <span class="text-sm font-bold text-gray-900">${n.member_name}</span>
+                ${n.member_department ? `<span class="text-xs text-gray-500 bg-white px-1.5 py-0.5 rounded-full border border-gray-200">${n.member_department}</span>` : ''}
+                <span class="text-xs font-bold px-2 py-0.5 rounded-full text-white" style="background:${color}">${label}</span>
+              </div>
+              <div class="flex items-center gap-1.5 text-xs text-gray-700 font-medium">
+                <svg class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                </svg>
+                ${dateStr}　${n.start_time}〜${n.end_time}
+                ${n.role ? `<span class="text-gray-500">・${n.role}</span>` : ''}
+                ${n.location ? `<span class="text-gray-400">@ ${n.location}</span>` : ''}
+              </div>
+              ${n.note ? `<div class="mt-1 text-xs text-gray-500 bg-white rounded-lg px-2.5 py-1.5 border border-gray-100">${n.note}</div>` : ''}
+              ${reportedAt ? `<div class="mt-1 text-[10px] text-gray-400">${reportedAt} に報告</div>` : ''}
             </div>
-            <div class="text-xs text-gray-600 mt-0.5">${dateStr}&nbsp;${n.start_time}〜${n.end_time}${n.role ? '&nbsp;' + n.role : ''}${n.location ? '&nbsp;@' + n.location : ''}</div>
-            ${n.note ? `<div class="text-xs text-gray-400 mt-0.5">${n.note}</div>` : ''}
-            ${reportedAt ? `<div class="text-[10px] text-gray-300 mt-0.5">${reportedAt} 報告</div>` : ''}
-            ${n.resolved
-              ? `<div class="text-[10px] text-green-500 font-medium mt-1.5">✓ 対応済み</div>`
-              : `<button class="btn-resolve mt-2 w-full py-1.5 text-xs font-semibold rounded-lg border border-green-300 text-green-600 hover:bg-green-50 transition-colors"
-                  data-aid="${n.assignment_id}">✓ 対応完了</button>`}
           </div>
+          ${n.resolved
+            ? `<div class="mt-2.5 flex items-center gap-1.5 text-xs text-green-600 font-semibold">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                </svg>対応済み
+               </div>`
+            : `<button class="btn-resolve mt-2.5 w-full py-2 text-xs font-semibold rounded-lg bg-white border-2 border-green-400 text-green-600 hover:bg-green-50 transition-colors"
+                data-aid="${n.assignment_id}">✓ 対応完了にする</button>`}
         </div>
       </div>`;
-  }).join('<div class="border-t border-gray-50 mx-4"></div>');
+  };
+
+  let html = '';
+  if (pending.length) {
+    html += `<div class="pt-2 pb-1"><p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-0">未対応 ${pending.length}件</p></div>`;
+    html += pending.map(renderItem).join('');
+  }
+  if (resolved.length) {
+    html += `<div class="pt-3 pb-1 border-t border-gray-100 mt-1"><p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">対応済み ${resolved.length}件</p></div>`;
+    html += resolved.map(renderItem).join('');
+  }
+  list.innerHTML = html;
 
   list.querySelectorAll('.btn-resolve').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -3501,19 +3529,29 @@ function renderNotifList(items) {
 const btnNotif  = $('btn-notifications');
 const notifPanel = $('notif-panel');
 const btnNotifClose = $('btn-notif-close');
+const notifOverlay = $('notif-overlay');
+
+function openNotifPanel() {
+  notifPanel?.classList.remove('hidden');
+  notifOverlay?.classList.remove('hidden');
+  loadNotifications();
+}
+function closeNotifPanel() {
+  notifPanel?.classList.add('hidden');
+  notifOverlay?.classList.add('hidden');
+}
 
 btnNotif?.addEventListener('click', (e) => {
   e.stopPropagation();
-  const isOpen = !notifPanel.classList.contains('hidden');
-  notifPanel.classList.toggle('hidden', isOpen);
-  if (!isOpen) loadNotifications();
+  notifPanel?.classList.contains('hidden') ? openNotifPanel() : closeNotifPanel();
 });
 
-btnNotifClose?.addEventListener('click', () => notifPanel.classList.add('hidden'));
+btnNotifClose?.addEventListener('click', closeNotifPanel);
+notifOverlay?.addEventListener('click', closeNotifPanel);
 
 document.addEventListener('click', (e) => {
   if (!notifPanel?.contains(e.target) && !btnNotif?.contains(e.target)) {
-    notifPanel?.classList.add('hidden');
+    closeNotifPanel();
   }
 });
 
