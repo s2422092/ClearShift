@@ -44,7 +44,7 @@ def _invalidate_event_cache(event_id):
         db.session.query(EventMember.id).filter_by(event_id=event_id).all()
     ]
     for mid in member_ids:
-        cache.delete(f'viewer_my_shifts_{event_id}_{mid}')
+        cache.delete(f'viewer_my_shifts_v2_{event_id}_{mid}')
 
     # 日付別キャッシュも全日程分削除
     from models import Event as _Event

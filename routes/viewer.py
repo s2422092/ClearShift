@@ -66,7 +66,7 @@ def api_my_shifts(event_id):
     if not member:
         return jsonify({'error': 'ログインしてください。'}), 401
 
-    cache_key = f'viewer_my_shifts_{event_id}_{member.id}'
+    cache_key = f'viewer_my_shifts_v2_{event_id}_{member.id}'
     cached = cache.get(cache_key)
     if cached is not None:
         return jsonify(cached)
@@ -87,29 +87,46 @@ def api_my_shifts(event_id):
     # クエリ2: ジョブタイプ（小テーブル）
     jobs = {j.id: j for j in JobType.query.filter_by(event_id=event_id).all()}
 
-    # クエリ3: 同じスロット（slot_id完全一致）に割り当てられたメンバーのみ取得
+    # クエリ3: 同じイベントの全スロット＋割り当てを取得し、Python側で条件判定
+    # 条件: job_type_id が一致（両方非NULL）かつ同じ日付かつ時間帯が少しでも重なる
+    #       job_type_id が NULL の場合は同一 slot_id のみ
     colleagues_by_slot: dict = {}
     if assignments:
-        my_slot_ids = [a.slot_id for a in assignments]
-        colleague_rows = (
-            db.session.query(ShiftAssignment, EventMember)
+        # イベント全体の他メンバーの割り当てを一括取得
+        all_other = (
+            db.session.query(ShiftAssignment, EventMember, ShiftSlot)
+            .join(ShiftSlot, ShiftAssignment.slot_id == ShiftSlot.id)
             .join(EventMember, ShiftAssignment.member_id == EventMember.id)
             .filter(
-                ShiftAssignment.slot_id.in_(my_slot_ids),
+                ShiftSlot.event_id == event_id,
                 ShiftAssignment.member_id != member.id,
             )
             .all()
         )
-        for ca, cm in colleague_rows:
-            bucket = colleagues_by_slot.setdefault(ca.slot_id, [])
-            if not any(c['member_id'] == cm.id for c in bucket):
-                bucket.append({
-                    'member_id': cm.id,
-                    'name': cm.name,
-                    'department': cm.department,
-                    'grade': cm.grade,
-                    'status': ca.status,
-                })
+
+        for a in assignments:
+            s = a.slot
+            bucket = colleagues_by_slot.setdefault(s.id, [])
+            for ca, cm, cs in all_other:
+                # job_type_id あり：同じ仕事 × 同じ日 × 時間帯が少しでも重なる
+                if s.job_type_id is not None and cs.job_type_id == s.job_type_id:
+                    overlaps = (
+                        cs.date == s.date and
+                        cs.start_time < s.end_time and
+                        cs.end_time > s.start_time
+                    )
+                # job_type_id なし：完全に同じスロット
+                else:
+                    overlaps = (cs.id == s.id)
+
+                if overlaps and not any(c['member_id'] == cm.id for c in bucket):
+                    bucket.append({
+                        'member_id': cm.id,
+                        'name': cm.name,
+                        'department': cm.department,
+                        'grade': cm.grade,
+                        'status': ca.status,
+                    })
 
     result = []
     for a in assignments:
@@ -300,7 +317,7 @@ def api_report_status(event_id):
     db.session.commit()
 
     # ステータス変更時はビューアーキャッシュを無効化
-    cache.delete(f'viewer_my_shifts_{event_id}_{member.id}')
+    cache.delete(f'viewer_my_shifts_v2_{event_id}_{member.id}')
     cache.delete(f'viewer_shifts_{event_id}')
 
     return jsonify({'ok': True, 'status': status})
@@ -336,7 +353,7 @@ def api_report_partner_absent(event_id):
     db.session.commit()
 
     # ステータス変更時はビューアーキャッシュを無効化
-    cache.delete(f'viewer_my_shifts_{event_id}_{target_member_id}')
+    cache.delete(f'viewer_my_shifts_v2_{event_id}_{target_member_id}')
     cache.delete(f'viewer_shifts_{event_id}')
 
     return jsonify({'ok': True})

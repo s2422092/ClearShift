@@ -3525,16 +3525,13 @@ function renderNotifList(items) {
 const btnNotif  = $('btn-notifications');
 const notifPanel = $('notif-panel');
 const btnNotifClose = $('btn-notif-close');
-const notifOverlay = $('notif-overlay');
 
 function openNotifPanel() {
   notifPanel?.classList.remove('hidden');
-  notifOverlay?.classList.remove('hidden');
   loadNotifications();
 }
 function closeNotifPanel() {
   notifPanel?.classList.add('hidden');
-  notifOverlay?.classList.add('hidden');
 }
 
 btnNotif?.addEventListener('click', (e) => {
@@ -3543,7 +3540,6 @@ btnNotif?.addEventListener('click', (e) => {
 });
 
 btnNotifClose?.addEventListener('click', closeNotifPanel);
-notifOverlay?.addEventListener('click', closeNotifPanel);
 
 document.addEventListener('click', (e) => {
   if (!notifPanel?.contains(e.target) && !btnNotif?.contains(e.target)) {
