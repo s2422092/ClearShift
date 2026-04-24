@@ -1259,30 +1259,51 @@ def api_delete_absence(event_id):
     return jsonify({'ok': True})
 
 
-# ── Google Sheets エクスポート ─────────────────────────────────────────────────
+# ── Excel エクスポート ────────────────────────────────────────────────────────
 
-@admin_bp.route('/api/events/<int:event_id>/export-sheets', methods=['POST'])
+@admin_bp.route('/api/events/<int:event_id>/export-excel', methods=['GET'])
 @login_required
-def api_export_sheets(event_id):
-    """イベントのシフト表を Google スプレッドシートに書き出し、URL を返す。"""
+def api_export_excel(event_id):
+    """イベントのシフト表を Excel (.xlsx) ファイルとしてダウンロードさせる。"""
     _can_access_event(event_id)
     event = Event.query.get_or_404(event_id)
-
-    # assignments を含めてスロットを一括取得
-    slots = (
-        ShiftSlot.query
-        .filter_by(event_id=event_id)
-        .options(joinedload(ShiftSlot.assignments))
-        .all()
-    )
-    members = EventMember.query.filter_by(event_id=event_id).all()
     day_labels = event.get_day_labels()
 
-    try:
-        from utils.google_sheets import export_event_to_sheets
-        url = export_event_to_sheets(event, slots, members, day_labels)
-        return jsonify({'url': url})
-    except (ValueError, RuntimeError) as e:
-        return jsonify({'error': str(e)}), 400
-    except Exception as e:
-        return jsonify({'error': f'スプレッドシートの作成に失敗しました: {e}'}), 500
+    # 必要な列だけを3本の軽量クエリで取得（joinedload の巨大JOINを避ける）
+    slot_rows = (
+        db.session.query(
+            ShiftSlot.id, ShiftSlot.date, ShiftSlot.start_time,
+            ShiftSlot.end_time, ShiftSlot.role, ShiftSlot.location,
+            ShiftSlot.required_count,
+        )
+        .filter(ShiftSlot.event_id == event_id)
+        .order_by(ShiftSlot.date, ShiftSlot.start_time)
+        .all()
+    )
+    assignment_rows = (
+        db.session.query(ShiftAssignment.slot_id, ShiftAssignment.member_id)
+        .join(ShiftSlot, ShiftAssignment.slot_id == ShiftSlot.id)
+        .filter(ShiftSlot.event_id == event_id)
+        .all()
+    )
+    member_rows = (
+        db.session.query(EventMember.id, EventMember.name, EventMember.department)
+        .filter(EventMember.event_id == event_id)
+        .all()
+    )
+
+    from utils.excel_export import export_event_to_excel_fast
+    xlsx_bytes = export_event_to_excel_fast(
+        event.title, slot_rows, assignment_rows, member_rows, day_labels
+    )
+
+    safe_title = event.title.replace('/', '_').replace('\\', '_')
+    filename = f'{safe_title}_シフト表.xlsx'
+
+    return Response(
+        xlsx_bytes,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={
+            'Content-Disposition': f'attachment; filename*=UTF-8\'\'{filename}',
+        },
+    )

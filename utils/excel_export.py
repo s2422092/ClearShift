@@ -1,0 +1,213 @@
+"""
+Excel エクスポートユーティリティ
+xlsxwriter を使い、イベントのシフト表を .xlsx ファイルとして高速生成する。
+外部API・認証不要でサーバー側のみで完結する。
+"""
+import io
+from collections import defaultdict
+from types import SimpleNamespace
+
+import xlsxwriter
+
+
+def export_event_to_excel(event, slots, members, day_labels):
+    """
+    イベントのシフト表を Excel ファイルとして生成し、bytes を返す。
+
+    Args:
+        event:      Event モデルインスタンス
+        slots:      ShiftSlot のリスト（assignments が joined-load 済み）
+        members:    EventMember のリスト
+        day_labels: {"YYYY-MM-DD": "日程名", ...} の dict
+
+    Returns:
+        bytes: .xlsx ファイルのバイト列
+    """
+    buf = io.BytesIO()
+    wb = xlsxwriter.Workbook(buf, {'in_memory': True})
+    fmts = _make_formats(wb)
+
+    member_map = {m.id: m for m in members}
+    slots_by_date = defaultdict(list)
+    for s in slots:
+        slots_by_date[s.date.isoformat()].append(s)
+
+    all_dates = sorted(slots_by_date.keys())
+
+    if not all_dates:
+        ws = wb.add_worksheet('シフトなし')
+        ws.write(0, 0, 'シフト枠が登録されていません。')
+        wb.close()
+        return buf.getvalue()
+
+    for date_str in all_dates:
+        label = day_labels.get(date_str, '')
+        month, day = date_str[5:7], date_str[8:10]
+        sheet_title = f'{month}-{day} {label}'[:31] if label else f'{month}-{day}'
+        ws = wb.add_worksheet(sheet_title)
+        _write_day_sheet(
+            ws, date_str, label,
+            sorted(slots_by_date[date_str], key=lambda s: (s.start_time.strftime('%H:%M'), s.end_time.strftime('%H:%M'))),
+            member_map, *fmts,
+        )
+
+    wb.close()
+    return buf.getvalue()
+
+
+# 列設定: (ヘッダー名, 列幅)
+_COLS = [
+    ('開始',      9),
+    ('終了',      9),
+    ('仕事・役割', 22),
+    ('場所',      22),
+    ('必要人数',   9),
+    ('担当者',    48),
+]
+
+
+def _write_day_sheet(ws, date_str, label, day_slots, member_map,
+                     fmt_title, fmt_header,
+                     fmt_center_white, fmt_center_stripe,
+                     fmt_left_white, fmt_left_stripe,
+                     fmt_names_white, fmt_names_stripe):
+    n_cols = len(_COLS)
+
+    month, day = date_str[5:7], date_str[8:10]
+    date_display = f'{date_str[:4]}年{month}月{day}日'
+    if label:
+        date_display += f'　{label}'
+
+    # 列幅設定
+    for ci, (_, w) in enumerate(_COLS):
+        ws.set_column(ci, ci, w)
+
+    # 行1: タイトル
+    ws.set_row(0, 28)
+    ws.merge_range(0, 0, 0, n_cols - 1, date_display, fmt_title)
+
+    # 行2: ヘッダー
+    ws.set_row(1, 20)
+    for ci, (col_name, _) in enumerate(_COLS):
+        ws.write(1, ci, col_name, fmt_header)
+
+    # 行3〜: データ
+    for ri, s in enumerate(day_slots):
+        row = 2 + ri
+        ws.set_row(row, 22)
+        is_stripe = ri % 2 == 1
+        fmt_c = fmt_center_stripe if is_stripe else fmt_center_white
+        fmt_l = fmt_left_stripe   if is_stripe else fmt_left_white
+        fmt_n = fmt_names_stripe  if is_stripe else fmt_names_white
+
+        assigned_names = []
+        for a in s.assignments:
+            m = member_map.get(a.member_id)
+            if m:
+                name = m.name
+                if m.department:
+                    name += f'（{m.department}）'
+                assigned_names.append(name)
+
+        ws.write(row, 0, s.start_time.strftime('%H:%M'), fmt_c)
+        ws.write(row, 1, s.end_time.strftime('%H:%M'),   fmt_c)
+        ws.write(row, 2, s.role or '',                    fmt_l)
+        ws.write(row, 3, s.location or '',                fmt_l)
+        ws.write(row, 4, s.required_count,                fmt_c)
+        ws.write(row, 5,
+                 '　'.join(assigned_names) if assigned_names else '（未割り当て）',
+                 fmt_n)
+
+    # ヘッダー行を固定
+    ws.freeze_panes(2, 0)
+
+
+def export_event_to_excel_fast(event_title, slot_rows, assignment_rows, member_rows, day_labels):
+    """
+    軽量なクエリ結果（タプル列）から Excel ファイルを高速生成する。
+
+    Args:
+        event_title:      イベントタイトル（文字列）
+        slot_rows:        (id, date, start_time, end_time, role, location, required_count) のリスト
+        assignment_rows:  (slot_id, member_id) のリスト
+        member_rows:      (id, name, department) のリスト
+        day_labels:       {"YYYY-MM-DD": "日程名", ...} の dict
+
+    Returns:
+        bytes: .xlsx ファイルのバイト列
+    """
+    # Python側で結合（DB JOINより高速）
+    # member_id -> (name, department)
+    member_map = {mid: (name, dept) for mid, name, dept in member_rows}
+
+    # slot_id -> [member_id, ...]
+    slot_members: dict = defaultdict(list)
+    for slot_id, member_id in assignment_rows:
+        slot_members[slot_id].append(member_id)
+
+    # date_str -> [slot namespace, ...]
+    slots_by_date: dict = defaultdict(list)
+    for sid, date, start_time, end_time, role, location, required_count in slot_rows:
+        # _write_day_sheet が期待するインターフェースを SimpleNamespace で模倣
+        s = SimpleNamespace(
+            id=sid,
+            date=date,
+            start_time=start_time,
+            end_time=end_time,
+            role=role,
+            location=location,
+            required_count=required_count,
+            # assignments は (member_id,) を持つ軽量オブジェクトのリスト
+            assignments=[SimpleNamespace(member_id=mid) for mid in slot_members.get(sid, [])],
+        )
+        slots_by_date[date.isoformat()].append(s)
+
+    # member_map を _write_day_sheet 向けに変換: id -> オブジェクト
+    member_obj_map = {
+        mid: SimpleNamespace(name=name, department=dept)
+        for mid, (name, dept) in member_map.items()
+    }
+
+    # 以降は既存の export_event_to_excel と同じワークブック生成処理
+    buf = io.BytesIO()
+    wb = xlsxwriter.Workbook(buf, {'in_memory': True})
+    fmts = _make_formats(wb)
+
+    all_dates = sorted(slots_by_date.keys())
+    if not all_dates:
+        ws = wb.add_worksheet('シフトなし')
+        ws.write(0, 0, 'シフト枠が登録されていません。')
+    else:
+        for date_str in all_dates:
+            label = day_labels.get(date_str, '')
+            month, day = date_str[5:7], date_str[8:10]
+            sheet_title = f'{month}-{day} {label}'[:31] if label else f'{month}-{day}'
+            ws = wb.add_worksheet(sheet_title)
+            day_slots = sorted(slots_by_date[date_str],
+                               key=lambda s: (s.start_time.strftime('%H:%M'), s.end_time.strftime('%H:%M')))
+            _write_day_sheet(ws, date_str, label, day_slots, member_obj_map, *fmts)
+
+    wb.close()
+    return buf.getvalue()
+
+
+def _make_formats(wb):
+    """ワークブック共通フォーマットを生成してタプルで返す。"""
+    return (
+        wb.add_format({'bold': True, 'font_size': 13, 'font_color': '#FFFFFF',
+                       'bg_color': '#34609E', 'align': 'center', 'valign': 'vcenter', 'border': 0}),
+        wb.add_format({'bold': True, 'font_size': 10, 'bg_color': '#D9E2F3',
+                       'align': 'center', 'valign': 'vcenter', 'border': 1, 'border_color': '#CCCCCC'}),
+        wb.add_format({'font_size': 10, 'bg_color': '#FFFFFF',
+                       'align': 'center', 'valign': 'vcenter', 'border': 1, 'border_color': '#CCCCCC'}),
+        wb.add_format({'font_size': 10, 'bg_color': '#F5F5F8',
+                       'align': 'center', 'valign': 'vcenter', 'border': 1, 'border_color': '#CCCCCC'}),
+        wb.add_format({'font_size': 10, 'bg_color': '#FFFFFF',
+                       'align': 'left', 'valign': 'vcenter', 'border': 1, 'border_color': '#CCCCCC'}),
+        wb.add_format({'font_size': 10, 'bg_color': '#F5F5F8',
+                       'align': 'left', 'valign': 'vcenter', 'border': 1, 'border_color': '#CCCCCC'}),
+        wb.add_format({'font_size': 10, 'bg_color': '#FFFFFF',
+                       'align': 'left', 'valign': 'vcenter', 'border': 1, 'border_color': '#CCCCCC', 'text_wrap': True}),
+        wb.add_format({'font_size': 10, 'bg_color': '#F5F5F8',
+                       'align': 'left', 'valign': 'vcenter', 'border': 1, 'border_color': '#CCCCCC', 'text_wrap': True}),
+    )

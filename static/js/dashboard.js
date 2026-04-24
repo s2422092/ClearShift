@@ -2659,39 +2659,7 @@ $('btn-delete-event').addEventListener('click', async () => {
   } catch (err) { showToast(err.message, true); }
 });
 
-// ── Google Sheets エクスポート ─────────────────────────────────────────────────
-$('btn-export-sheets')?.addEventListener('click', async () => {
-  const btn = $('btn-export-sheets');
-  const resultArea = $('sheets-result');
-  const link = $('sheets-link');
-
-  btn.disabled = true;
-  btn.innerHTML = `
-    <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
-    </svg>
-    生成中...`;
-
-  try {
-    const { url } = await apiFetch(`/api/events/${EVENT_ID}/export-sheets`, { method: 'POST' });
-    link.href = url;
-    link.textContent = url;
-    resultArea.classList.remove('hidden');
-    window.open(url, '_blank', 'noopener');
-    showToast('スプレッドシートを作成しました');
-  } catch (err) {
-    showToast(err.message || 'スプレッドシートの作成に失敗しました。', true);
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = `
-      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-      </svg>
-      スプレッドシートを生成`;
-  }
-});
+// ── Excel エクスポート（<a> タグによる直接ダウンロードのため JS 不要） ────────────
 
 // ─── Member Detail Modal ──────────────────────────────────────────────────────
 const modalMemberDetail = $('modal-member-detail');
