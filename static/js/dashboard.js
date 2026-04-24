@@ -3466,35 +3466,31 @@ function renderNotifList(items) {
       ? new Date(n.reported_at).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
       : '';
     return `
-      <div class="py-3 ${n.resolved ? 'opacity-60' : ''}">
-        <div class="rounded-xl border p-3.5" style="background:${n.resolved ? '#F9FAFB' : bgLight};border-color:${color}30">
-          <div class="flex items-start justify-between gap-3">
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2 flex-wrap mb-1">
-                <span class="text-sm font-bold text-gray-900">${n.member_name}</span>
-                ${n.member_department ? `<span class="text-xs text-gray-500 bg-white px-1.5 py-0.5 rounded-full border border-gray-200">${n.member_department}</span>` : ''}
-                <span class="text-xs font-bold px-2 py-0.5 rounded-full text-white" style="background:${color}">${label}</span>
-              </div>
-              <div class="flex items-center gap-1.5 text-xs text-gray-700 font-medium">
-                <svg class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                </svg>
-                ${dateStr}　${n.start_time}〜${n.end_time}
-                ${n.role ? `<span class="text-gray-500">・${n.role}</span>` : ''}
-                ${n.location ? `<span class="text-gray-400">@ ${n.location}</span>` : ''}
-              </div>
-              ${n.note ? `<div class="mt-1 text-xs text-gray-500 bg-white rounded-lg px-2.5 py-1.5 border border-gray-100">${n.note}</div>` : ''}
-              ${reportedAt ? `<div class="mt-1 text-[10px] text-gray-400">${reportedAt} に報告</div>` : ''}
-            </div>
+      <div class="py-2 ${n.resolved ? 'opacity-55' : ''}">
+        <div class="rounded-xl border p-3" style="background:${n.resolved ? '#F9FAFB' : bgLight};border-color:${color}40">
+          <!-- 名前 + ステータスバッジ -->
+          <div class="flex items-center gap-1.5 flex-wrap mb-1">
+            <span class="text-sm font-bold text-gray-900">${n.member_name}</span>
+            ${n.member_department ? `<span class="text-[10px] text-gray-500 bg-white px-1.5 py-0.5 rounded-full border border-gray-200 leading-tight">${n.member_department}</span>` : ''}
+            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded-full text-white leading-tight" style="background:${color}">${label}</span>
           </div>
+          <!-- 日時 -->
+          <div class="text-xs text-gray-700 font-medium leading-relaxed">
+            ${dateStr}　${n.start_time}〜${n.end_time}
+            ${n.role ? `<span class="text-gray-400">・${n.role}</span>` : ''}
+          </div>
+          ${n.location ? `<div class="text-[10px] text-gray-400 mt-0.5">📍 ${n.location}</div>` : ''}
+          ${n.note ? `<div class="mt-1.5 text-xs text-gray-500 bg-white rounded-lg px-2 py-1 border border-gray-100 leading-snug">${n.note}</div>` : ''}
+          ${reportedAt ? `<div class="mt-1 text-[10px] text-gray-400">${reportedAt} 報告</div>` : ''}
+          <!-- アクション -->
           ${n.resolved
-            ? `<div class="mt-2.5 flex items-center gap-1.5 text-xs text-green-600 font-semibold">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+            ? `<div class="mt-2 flex items-center gap-1 text-[11px] text-green-600 font-semibold">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
                 </svg>対応済み
                </div>`
-            : `<button class="btn-resolve mt-2.5 w-full py-2 text-xs font-semibold rounded-lg bg-white border-2 border-green-400 text-green-600 hover:bg-green-50 transition-colors"
-                data-aid="${n.assignment_id}">✓ 対応完了にする</button>`}
+            : `<button class="btn-resolve mt-2 w-full py-1.5 text-xs font-semibold rounded-lg bg-white border-2 border-green-400 text-green-600 hover:bg-green-50 active:scale-[.99] transition-all"
+                data-aid="${n.assignment_id}">✓ 対応完了</button>`}
         </div>
       </div>`;
   };
