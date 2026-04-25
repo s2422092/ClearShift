@@ -1273,25 +1273,27 @@ def api_export_excel(event_id):
     from sqlalchemy import text as sa_text
     rows = db.session.execute(sa_text("""
         SELECT
-            ss.id         AS slot_id,
-            ss.date       AS slot_date,
-            ss.start_time AS start_time,
-            ss.end_time   AS end_time,
-            ss.role       AS role,
-            ss.location   AS location,
-            ss.required_count AS required_count,
-            sa.member_id  AS member_id,
-            em.name       AS member_name,
-            em.department AS member_dept
+            ss.id              AS slot_id,
+            ss.date            AS slot_date,
+            ss.start_time      AS start_time,
+            ss.end_time        AS end_time,
+            ss.role            AS role,
+            COALESCE(jt.color, '#4DA3FF') AS job_color,
+            sa.member_id       AS member_id,
+            em.name            AS member_name,
+            em.department      AS member_dept,
+            em.grade           AS member_grade,
+            em.is_leader       AS is_leader
         FROM shift_slots ss
+        LEFT JOIN job_types jt ON jt.id = ss.job_type_id
         LEFT JOIN shift_assignments sa ON sa.slot_id = ss.id
         LEFT JOIN event_members em ON em.id = sa.member_id
         WHERE ss.event_id = :eid
         ORDER BY ss.date, ss.start_time, ss.id
     """), {'eid': event_id}).fetchall()
 
-    from utils.excel_export import export_from_raw_rows
-    xlsx_bytes = export_from_raw_rows(event.title, rows, day_labels)
+    from utils.excel_export import export_board_style
+    xlsx_bytes = export_board_style(event.title, rows, day_labels)
 
     safe_title = event.title.replace('/', '_').replace('\\', '_')
     ascii_name = 'shift.xlsx'  # ASCIIフォールバック（一部ブラウザ向け）
