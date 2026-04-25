@@ -1269,41 +1269,39 @@ def api_export_excel(event_id):
     event = Event.query.get_or_404(event_id)
     day_labels = event.get_day_labels()
 
-    # 必要な列だけを3本の軽量クエリで取得（joinedload の巨大JOINを避ける）
-    slot_rows = (
-        db.session.query(
-            ShiftSlot.id, ShiftSlot.date, ShiftSlot.start_time,
-            ShiftSlot.end_time, ShiftSlot.role, ShiftSlot.location,
-            ShiftSlot.required_count,
-        )
-        .filter(ShiftSlot.event_id == event_id)
-        .order_by(ShiftSlot.date, ShiftSlot.start_time)
-        .all()
-    )
-    assignment_rows = (
-        db.session.query(ShiftAssignment.slot_id, ShiftAssignment.member_id)
-        .join(ShiftSlot, ShiftAssignment.slot_id == ShiftSlot.id)
-        .filter(ShiftSlot.event_id == event_id)
-        .all()
-    )
-    member_rows = (
-        db.session.query(EventMember.id, EventMember.name, EventMember.department)
-        .filter(EventMember.event_id == event_id)
-        .all()
-    )
+    # 単一SQLで全データを一括取得（DBラウンドトリップを最小化）
+    from sqlalchemy import text as sa_text
+    rows = db.session.execute(sa_text("""
+        SELECT
+            ss.id         AS slot_id,
+            ss.date       AS slot_date,
+            ss.start_time AS start_time,
+            ss.end_time   AS end_time,
+            ss.role       AS role,
+            ss.location   AS location,
+            ss.required_count AS required_count,
+            sa.member_id  AS member_id,
+            em.name       AS member_name,
+            em.department AS member_dept
+        FROM shift_slots ss
+        LEFT JOIN shift_assignments sa ON sa.slot_id = ss.id
+        LEFT JOIN event_members em ON em.id = sa.member_id
+        WHERE ss.event_id = :eid
+        ORDER BY ss.date, ss.start_time, ss.id
+    """), {'eid': event_id}).fetchall()
 
-    from utils.excel_export import export_event_to_excel_fast
-    xlsx_bytes = export_event_to_excel_fast(
-        event.title, slot_rows, assignment_rows, member_rows, day_labels
-    )
+    from utils.excel_export import export_from_raw_rows
+    xlsx_bytes = export_from_raw_rows(event.title, rows, day_labels)
 
     safe_title = event.title.replace('/', '_').replace('\\', '_')
-    filename = f'{safe_title}_シフト表.xlsx'
+    ascii_name = 'shift.xlsx'  # ASCIIフォールバック（一部ブラウザ向け）
+    from urllib.parse import quote
+    utf8_name = quote(f'{safe_title}_シフト表.xlsx')
 
     return Response(
         xlsx_bytes,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         headers={
-            'Content-Disposition': f'attachment; filename*=UTF-8\'\'{filename}',
+            'Content-Disposition': f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{utf8_name}',
         },
     )

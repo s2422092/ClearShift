@@ -191,6 +191,119 @@ def export_event_to_excel_fast(event_title, slot_rows, assignment_rows, member_r
     return buf.getvalue()
 
 
+def export_from_raw_rows(event_title, rows, day_labels):
+    """
+    単一SQL JOIN の結果行から直接 Excel を生成する（最速版）。
+
+    rows の各行は以下の列を持つ:
+      slot_id, slot_date, start_time, end_time, role, location,
+      required_count, member_id, member_name, member_dept
+
+    Returns:
+        bytes: .xlsx ファイルのバイト列
+    """
+    # Python側で集約（1パスで完結）
+    from collections import OrderedDict
+
+    # slot_id -> slot情報 (OrderedDict でDBのORDER BY を維持)
+    slot_info = OrderedDict()
+    # slot_id -> [(member_name, member_dept), ...]
+    slot_members: dict = defaultdict(list)
+
+    for row in rows:
+        sid       = row[0]
+        slot_date = row[1]
+        start_time = row[2]
+        end_time   = row[3]
+        role       = row[4]
+        location   = row[5]
+        req_count  = row[6]
+        member_id  = row[7]
+        member_name = row[8]
+        member_dept = row[9]
+
+        if sid not in slot_info:
+            slot_info[sid] = (slot_date, start_time, end_time, role, location, req_count)
+        if member_id is not None:
+            slot_members[sid].append((member_name or '', member_dept or ''))
+
+    # date_str -> [slot_id, ...]
+    slots_by_date: dict = defaultdict(list)
+    for sid, (slot_date, *_) in slot_info.items():
+        slots_by_date[slot_date.isoformat()].append(sid)
+
+    buf = io.BytesIO()
+    wb = xlsxwriter.Workbook(buf, {'in_memory': True})
+    fmts = _make_formats(wb)
+    (fmt_title, fmt_header,
+     fmt_c_w, fmt_c_s,
+     fmt_l_w, fmt_l_s,
+     fmt_n_w, fmt_n_s) = fmts
+
+    all_dates = sorted(slots_by_date.keys())
+
+    if not all_dates:
+        ws = wb.add_worksheet('シフトなし')
+        ws.write(0, 0, 'シフト枠が登録されていません。')
+        wb.close()
+        return buf.getvalue()
+
+    n_cols = len(_COLS)
+
+    for date_str in all_dates:
+        label = day_labels.get(date_str, '')
+        month, day_s = date_str[5:7], date_str[8:10]
+        sheet_title = f'{month}-{day_s} {label}'[:31] if label else f'{month}-{day_s}'
+        ws = wb.add_worksheet(sheet_title)
+
+        # 列幅
+        for ci, (_, w) in enumerate(_COLS):
+            ws.set_column(ci, ci, w)
+
+        # タイトル行
+        date_display = f'{date_str[:4]}年{month}月{day_s}日'
+        if label:
+            date_display += f'　{label}'
+        ws.set_row(0, 28)
+        ws.merge_range(0, 0, 0, n_cols - 1, date_display, fmt_title)
+
+        # ヘッダー行
+        ws.set_row(1, 20)
+        for ci, (col_name, _) in enumerate(_COLS):
+            ws.write(1, ci, col_name, fmt_header)
+
+        # データ行
+        day_slot_ids = sorted(
+            slots_by_date[date_str],
+            key=lambda s: (slot_info[s][1].strftime('%H:%M'), slot_info[s][2].strftime('%H:%M'))
+        )
+        for ri, sid in enumerate(day_slot_ids):
+            row_idx = 2 + ri
+            ws.set_row(row_idx, 22)
+            _, start_time, end_time, role, location, req_count = slot_info[sid]
+            is_stripe = ri % 2 == 1
+            fmt_c = fmt_c_s if is_stripe else fmt_c_w
+            fmt_l = fmt_l_s if is_stripe else fmt_l_w
+            fmt_n = fmt_n_s if is_stripe else fmt_n_w
+
+            members = slot_members.get(sid, [])
+            names_str = '　'.join(
+                f'{n}（{d}）' if d else n for n, d in members
+            ) if members else '（未割り当て）'
+
+            ws.write(row_idx, 0, start_time.strftime('%H:%M'), fmt_c)
+            ws.write(row_idx, 1, end_time.strftime('%H:%M'),   fmt_c)
+            ws.write(row_idx, 2, role or '',                    fmt_l)
+            ws.write(row_idx, 3, location or '',                fmt_l)
+            ws.write(row_idx, 4, req_count,                     fmt_c)
+            ws.write(row_idx, 5, names_str,                     fmt_n)
+
+        ws.freeze_panes(2, 0)
+
+    wb.close()
+    return buf.getvalue()
+
+
 def _make_formats(wb):
     """ワークブック共通フォーマットを生成してタプルで返す。"""
     return (
