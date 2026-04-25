@@ -330,7 +330,7 @@ def _grade_num(grade):
     return int(m.group()) if m else 0
 
 
-def export_board_style(event_title, rows, day_labels, interval_min=30):
+def export_board_style(event_title, rows, day_labels, interval_min=30, all_members=None):
     """
     シフト表と同じグリッドレイアウト（時間軸×メンバー）で Excel を生成する。
 
@@ -371,6 +371,18 @@ def export_board_style(event_title, rows, day_labels, interval_min=30):
             )
 
     all_dates = sorted(slot_info_by_date.keys())
+
+    # 全メンバーをシフトがある全日付に追加（未割り当て・欠席者も含めて全員表示）
+    # all_members は名前順で渡されるので、挿入順 = 名前順 になる
+    # → sorted() の安定ソートでタイブレーク時に名前順が維持される
+    if all_members:
+        for date_str in all_dates:
+            for mid, name, dept, grade, is_leader in all_members:
+                # 既に割り当てデータで登録済みの場合は上書きしない
+                if mid not in member_info_by_date[date_str]:
+                    member_info_by_date[date_str][mid] = (
+                        name or '', dept or '', grade or '', bool(is_leader)
+                    )
 
     buf = io.BytesIO()
     wb = xlsxwriter.Workbook(buf, {'in_memory': True})
@@ -469,12 +481,13 @@ def export_board_style(event_title, rows, day_labels, interval_min=30):
 
         # ── メンバーをソートしてグループ化 ────────────────────────────────────
         member_infos = member_info_by_date[date_str]
+        # JS と同じソート: is_leader desc → grade desc → name asc（JSのAPI返却が名前順なので）
         sorted_members = sorted(
             member_infos.items(),
             key=lambda x: (
                 not x[1][3],          # is_leader desc
                 -_grade_num(x[1][2]), # grade desc
-                x[1][0],              # name asc
+                x[1][0],              # name asc（同学年・同リーダー区分のタイブレーク）
             )
         )
 

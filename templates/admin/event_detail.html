@@ -467,6 +467,39 @@
           </button>
         </div>
 
+        <!-- 閲覧者向けカスタムリンク -->
+        <div class="max-w-md mt-6 bg-white rounded-xl p-5 border border-gray-100">
+          <div class="flex items-center gap-2 mb-1">
+            <svg class="w-4 h-4 text-primary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+            </svg>
+            <h3 class="text-sm font-semibold text-gray-800">閲覧者向けリンク</h3>
+          </div>
+          <p class="text-xs text-gray-500 mb-3 leading-relaxed">
+            シフト閲覧者の画面にボタンとして表示されます。LINEグループ・アンケートフォームなどのURLを登録できます。
+          </p>
+          <div class="space-y-2">
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">URL</label>
+              <input id="custom-link-url" type="url" placeholder="https://..."
+                value="{{ event.custom_link_url or '' }}"
+                class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">ボタンのラベル（省略可）</label>
+              <input id="custom-link-label" type="text" placeholder="LINEグループを開く"
+                value="{{ event.custom_link_label or '' }}"
+                class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all" />
+            </div>
+            <button id="btn-save-custom-link"
+              class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors">
+              保存
+            </button>
+            <span id="custom-link-saved" class="hidden text-xs text-green-600 font-medium ml-2">保存しました</span>
+          </div>
+        </div>
+
         <!-- 共有リンク（オーナーのみ表示） -->
         {% if is_owner %}
         <div class="max-w-md mt-6 bg-white rounded-xl p-5 border border-gray-100">

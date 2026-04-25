@@ -125,6 +125,16 @@ def create_app():
                 ))
                 db.session.commit()
             except Exception:
+                db.session.rollback()
+            try:
+                db.session.execute(db.text(
+                    "ALTER TABLE events ADD COLUMN custom_link_url VARCHAR(1000)"
+                ))
+                db.session.execute(db.text(
+                    "ALTER TABLE events ADD COLUMN custom_link_label VARCHAR(100)"
+                ))
+                db.session.commit()
+            except Exception:
                 db.session.rollback()  # 既に存在する場合は無視
 
     return app

@@ -225,6 +225,11 @@ def api_update_event(event_id):
     if 'day_labels' in data:
         labels = data['day_labels']
         event.day_labels_json = _jdump(labels) if labels else None
+    if 'custom_link_url' in data:
+        url = (data['custom_link_url'] or '').strip()
+        event.custom_link_url = url or None
+    if 'custom_link_label' in data:
+        event.custom_link_label = (data['custom_link_label'] or '').strip() or None
     db.session.commit()
     return jsonify(event.to_dict())
 
@@ -1269,7 +1274,7 @@ def api_export_excel(event_id):
     event = Event.query.get_or_404(event_id)
     day_labels = event.get_day_labels()
 
-    # 単一SQLで全データを一括取得（DBラウンドトリップを最小化）
+    # 単一SQLで全スロット＋割り当てデータを取得
     from sqlalchemy import text as sa_text
     rows = db.session.execute(sa_text("""
         SELECT
@@ -1292,8 +1297,17 @@ def api_export_excel(event_id):
         ORDER BY ss.date, ss.start_time, ss.id
     """), {'eid': event_id}).fetchall()
 
+    # 全メンバーを別途取得（シフト未割り当て・欠席者も含めて全員表示するため）
+    # ORDER BY name でJS側のAPIと同じ並び順にする（安定ソートの基準）
+    all_members = db.session.execute(sa_text("""
+        SELECT id, name, department, grade, is_leader
+        FROM event_members
+        WHERE event_id = :eid
+        ORDER BY name
+    """), {'eid': event_id}).fetchall()
+
     from utils.excel_export import export_board_style
-    xlsx_bytes = export_board_style(event.title, rows, day_labels)
+    xlsx_bytes = export_board_style(event.title, rows, day_labels, all_members=all_members)
 
     safe_title = event.title.replace('/', '_').replace('\\', '_')
     ascii_name = 'shift.xlsx'  # ASCIIフォールバック（一部ブラウザ向け）

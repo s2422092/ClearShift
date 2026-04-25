@@ -75,6 +75,20 @@
   <!-- 通知パネル外クリックで閉じるオーバーレイ -->
   <div id="viewer-notif-overlay" class="hidden fixed inset-0 z-30"></div>
 
+  <!-- 閲覧者向けカスタムリンク -->
+  {% if event.custom_link_url %}
+  <div class="max-w-2xl mx-auto px-4 pt-3">
+    <a href="{{ event.custom_link_url }}" target="_blank" rel="noopener noreferrer"
+      class="flex items-center justify-center gap-2 w-full py-2.5 bg-primary-light border border-primary/30 text-primary rounded-xl text-sm font-semibold hover:bg-primary hover:text-white transition-colors">
+      <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+      </svg>
+      {{ event.custom_link_label or 'リンクを開く' }}
+    </a>
+  </div>
+  {% endif %}
+
   <!-- ── マイシフト ── -->
   <div id="vtab-mine">
     <!-- 日付タブバー -->

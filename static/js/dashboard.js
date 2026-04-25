@@ -2651,6 +2651,23 @@ $('btn-save-settings').addEventListener('click', async () => {
   } catch (err) { showToast(err.message, true); }
 });
 
+// ── 閲覧者向けカスタムリンク保存 ─────────────────────────────────────────────
+$('btn-save-custom-link')?.addEventListener('click', async () => {
+  const url   = ($('custom-link-url')?.value   || '').trim();
+  const label = ($('custom-link-label')?.value || '').trim();
+  try {
+    await apiFetch(`/api/events/${EVENT_ID}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ custom_link_url: url, custom_link_label: label }),
+    });
+    const saved = $('custom-link-saved');
+    if (saved) {
+      saved.classList.remove('hidden');
+      setTimeout(() => saved.classList.add('hidden'), 2500);
+    }
+  } catch (err) { showToast(err.message || 'リンクの保存に失敗しました', true); }
+});
+
 $('btn-delete-event').addEventListener('click', async () => {
   if (!confirm('イベントを削除しますか？この操作は取り消せません。')) return;
   try {

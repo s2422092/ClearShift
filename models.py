@@ -42,6 +42,8 @@ class Event(db.Model):
 
     share_token = db.Column(db.String(64), unique=True, nullable=True)
     day_labels_json = db.Column(db.Text, nullable=True)  # {"2024-11-01": "大学祭1日目", ...}
+    custom_link_url   = db.Column(db.String(1000), nullable=True)   # 閲覧者向けカスタムリンクURL
+    custom_link_label = db.Column(db.String(100),  nullable=True)   # リンクのボタンラベル
 
     members = db.relationship('EventMember', backref='event', lazy=True, cascade='all, delete-orphan')
     slots = db.relationship('ShiftSlot', backref='event', lazy=True, cascade='all, delete-orphan')
@@ -70,6 +72,8 @@ class Event(db.Model):
             'created_at': self.created_at.isoformat(),
             'member_count': len(self.members),
             'share_token': self.share_token,
+            'custom_link_url': self.custom_link_url,
+            'custom_link_label': self.custom_link_label,
             'day_labels': self.get_day_labels(),
         }
 
