@@ -66,3 +66,16 @@ def warmup():
         warmed += 1
 
     return jsonify({'ok': True, 'warmed': warmed, 'total': len(events)})
+
+
+@cron_bp.route('/ping', methods=['GET'])
+def ping():
+    """
+    Supabase プロジェクトの自動一時停止を防ぐための keep-alive エンドポイント。
+    GitHub Actions の定期 cron から毎日呼び出して DB アクティビティを維持する。
+    """
+    try:
+        db.session.execute(db.text('SELECT 1'))
+        return jsonify({'ok': True, 'db': 'alive'})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
