@@ -211,25 +211,31 @@
   </div>
 </section>
 
-<!-- こんな場面で使える -->
+<!-- 大学祭特化セクション -->
 <section class="py-16 px-4 bg-surface">
   <div class="max-w-4xl mx-auto">
-    <h2 class="text-2xl font-bold text-center text-gray-900 mb-2">こんな場面で使われています</h2>
-    <p class="text-gray-500 text-center mb-10 text-sm">大人数のイベント運営でも安心</p>
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-      {% set usecases = [
-        ('🎪', '大学祭・学園祭', '複数日・多役割のシフト管理'),
-        ('🎵', '学内コンサート・公演', 'ステージ・音響・受付を一元管理'),
-        ('⚽', 'サークル・部活動', '練習・大会サポートのシフト調整'),
-        ('🎓', 'オープンキャンパス', 'ガイドや案内係のシフト管理'),
-      ] %}
-      {% for emoji, title, desc in usecases %}
-      <div class="bg-white rounded-xl p-5 border border-gray-100 text-center hover:shadow-md transition-shadow">
-        <div class="text-3xl mb-3">{{ emoji }}</div>
-        <h3 class="font-semibold text-gray-800 text-sm mb-1">{{ title }}</h3>
-        <p class="text-xs text-gray-400 leading-relaxed">{{ desc }}</p>
+    <div class="text-center mb-10">
+      <div class="text-4xl mb-3">🎪</div>
+      <h2 class="text-2xl font-bold text-gray-900 mb-2">大学祭・学園祭専用のシフト管理アプリです</h2>
+      <p class="text-gray-500 text-sm max-w-xl mx-auto leading-relaxed">
+        ClearShiftは、大学祭・学園祭の運営スタッフ向けに設計されています。<br/>
+        複数日にまたがる開催、受付・誘導・警備など多岐にわたる役割、<br/>
+        数十人〜百人規模のスタッフ管理を想定して作られています。
+      </p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+      <div class="bg-white rounded-xl p-5 border border-primary/20">
+        <div class="text-lg font-bold text-primary mb-1">複数日対応</div>
+        <p class="text-sm text-gray-500 leading-relaxed">前日準備・本番1日目・2日目・後片付けまで、日付ごとにタブで切り替えて管理できます。</p>
       </div>
-      {% endfor %}
+      <div class="bg-white rounded-xl p-5 border border-primary/20">
+        <div class="text-lg font-bold text-primary mb-1">多役割を色分け</div>
+        <p class="text-sm text-gray-500 leading-relaxed">受付・会場誘導・警備・物販など、仕事の種類ごとに色をつけてひと目で把握できます。</p>
+      </div>
+      <div class="bg-white rounded-xl p-5 border border-primary/20">
+        <div class="text-lg font-bold text-primary mb-1">大人数もらくらく</div>
+        <p class="text-sm text-gray-500 leading-relaxed">CSVやExcelで全スタッフを一括登録。コピー機能で同じシフトを複数人にまとめて割り当てできます。</p>
+      </div>
     </div>
   </div>
 </section>
