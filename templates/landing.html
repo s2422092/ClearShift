@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}ClearShift - シフト管理アプリ{% endblock %}
+{% block title %}ClearShift - 大学祭・学園祭のシフト管理アプリ{% endblock %}
 
 {% block content %}
 <!-- ナビゲーション -->
@@ -21,7 +21,7 @@
       </a>
       <a href="{{ url_for('auth.register') }}"
         class="px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary-dark transition-colors">
-        新規登録
+        無料で始める
       </a>
     </div>
   </div>
@@ -31,21 +31,22 @@
 <section class="pt-32 pb-20 px-4 bg-gradient-to-b from-primary-light to-white">
   <div class="max-w-4xl mx-auto text-center">
     <div class="inline-flex items-center gap-2 bg-white border border-primary/20 rounded-full px-4 py-1.5 mb-6 text-sm text-primary font-medium shadow-sm">
-      <span class="w-2 h-2 bg-primary rounded-full"></span>
-      シフト管理をもっとシンプルに
+      <span class="w-2 h-2 bg-primary rounded-full animate-pulse"></span>
+      大学祭・学園祭のシフト管理に特化
     </div>
     <h1 class="text-4xl md:text-6xl font-bold text-gray-900 mb-6 leading-tight">
-      チームのシフトを<br/>
-      <span class="text-primary">スマートに</span>管理
+      大学祭のシフト管理を<br/>
+      <span class="text-primary">もっとかんたんに</span>
     </h1>
-    <p class="text-lg text-gray-500 mb-10 max-w-2xl mx-auto leading-relaxed">
-      ClearShiftは、シフト作成・共有・管理を一元化したWebアプリです。
-      スマートフォンでも見やすく、リアルタイムで更新されます。
+    <p class="text-lg text-gray-500 mb-4 max-w-2xl mx-auto leading-relaxed">
+      スタッフ100人のシフトも、受付・誘導・警備など複数の役割も、ClearShiftなら一画面でスッキリ管理。
+      インストール不要、URLを共有するだけで全員がスマホから確認できます。
     </p>
+    <p class="text-sm text-gray-400 mb-10">大学祭実行委員・サークル・部活動の運営スタッフ向け</p>
     <div class="flex flex-col sm:flex-row gap-3 justify-center">
       <a href="{{ url_for('auth.register') }}"
         class="px-8 py-3.5 text-white bg-primary rounded-xl font-semibold hover:bg-primary-dark transition-all shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40 hover:-translate-y-0.5">
-        無料で始める
+        無料でシフトを作る
       </a>
       <a href="#features"
         class="px-8 py-3.5 text-primary bg-white border border-primary/30 rounded-xl font-semibold hover:bg-primary-light transition-all">
@@ -67,20 +68,20 @@
             <div class="text-xs text-gray-400 font-medium mb-2 px-2">イベント</div>
             <div class="space-y-1">
               <div class="px-3 py-2 rounded-lg bg-primary-light text-primary text-sm font-medium">
-                文化祭シフト
+                大学祭2025
+              </div>
+              <div class="px-3 py-2 rounded-lg text-gray-600 text-sm hover:bg-gray-100">
+                前夜祭
               </div>
               <div class="px-3 py-2 rounded-lg text-gray-600 text-sm hover:bg-gray-100">
                 体育祭サポート
-              </div>
-              <div class="px-3 py-2 rounded-lg text-gray-600 text-sm hover:bg-gray-100">
-                定期公演
               </div>
             </div>
           </div>
           <!-- メインエリア -->
           <div class="flex-1 p-4 overflow-hidden">
             <div class="flex items-center justify-between mb-4">
-              <h3 class="font-bold text-gray-800">文化祭シフト</h3>
+              <h3 class="font-bold text-gray-800">大学祭2025 シフト表</h3>
               <div class="flex gap-2">
                 <div class="w-20 h-7 bg-primary-light rounded-lg"></div>
                 <div class="w-20 h-7 bg-primary rounded-lg"></div>
@@ -89,7 +90,7 @@
             <div class="grid grid-cols-3 gap-2">
               {% for i in range(3) %}
               <div class="bg-surface rounded-lg p-3 border border-gray-100">
-                <div class="text-xs text-gray-400 mb-1">10月{{ 14 + i }}日</div>
+                <div class="text-xs text-gray-400 mb-1">11月{{ 1 + i }}日</div>
                 <div class="space-y-1">
                   <div class="h-6 bg-primary/10 rounded flex items-center px-2">
                     <div class="w-2 h-2 rounded-full bg-primary mr-1.5"></div>
@@ -97,7 +98,7 @@
                   </div>
                   <div class="h-6 bg-green-50 rounded flex items-center px-2">
                     <div class="w-2 h-2 rounded-full bg-green-400 mr-1.5"></div>
-                    <span class="text-xs text-green-600">誘導 13:00-17:00</span>
+                    <span class="text-xs text-green-600">会場誘導 13:00-17:00</span>
                   </div>
                 </div>
               </div>
@@ -107,32 +108,126 @@
         </div>
       </div>
     </div>
+    <p class="text-center text-sm text-gray-400 mt-4">シフト表のイメージ（管理者画面）</p>
+  </div>
+</section>
+
+<!-- 使い方の流れ -->
+<section class="py-16 px-4 bg-surface">
+  <div class="max-w-4xl mx-auto">
+    <h2 class="text-2xl font-bold text-center text-gray-900 mb-2">使い方はとってもシンプル</h2>
+    <p class="text-gray-500 text-center mb-12 text-sm">管理者は3ステップでシフト表を公開できます</p>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div class="bg-white rounded-xl p-6 border border-gray-100 text-center relative">
+        <div class="w-10 h-10 bg-primary rounded-full flex items-center justify-center text-white font-bold text-lg mx-auto mb-4">1</div>
+        <h3 class="font-semibold text-gray-900 mb-2">イベントを作成</h3>
+        <p class="text-sm text-gray-500 leading-relaxed">大学祭のタイトルと開催期間を設定。メンバーをCSV・Excelで一括登録できます。</p>
+      </div>
+      <div class="bg-white rounded-xl p-6 border border-gray-100 text-center relative">
+        <div class="hidden md:block absolute -left-3 top-1/2 -translate-y-1/2 text-gray-200 text-2xl">→</div>
+        <div class="w-10 h-10 bg-primary rounded-full flex items-center justify-center text-white font-bold text-lg mx-auto mb-4">2</div>
+        <h3 class="font-semibold text-gray-900 mb-2">シフトを割り当て</h3>
+        <p class="text-sm text-gray-500 leading-relaxed">グリッド画面でクリックするだけ。受付・誘導など役割ごとに色分けして管理できます。</p>
+      </div>
+      <div class="bg-white rounded-xl p-6 border border-gray-100 text-center relative">
+        <div class="hidden md:block absolute -left-3 top-1/2 -translate-y-1/2 text-gray-200 text-2xl">→</div>
+        <div class="w-10 h-10 bg-primary rounded-full flex items-center justify-center text-white font-bold text-lg mx-auto mb-4">3</div>
+        <h3 class="font-semibold text-gray-900 mb-2">URLで共有するだけ</h3>
+        <p class="text-sm text-gray-500 leading-relaxed">スタッフはURLにアクセスして名前でログイン。自分のシフトをスマホで確認できます。</p>
+      </div>
+    </div>
   </div>
 </section>
 
 <!-- 機能紹介 -->
-<section id="features" class="py-20 px-4 bg-surface">
+<section id="features" class="py-20 px-4">
   <div class="max-w-5xl mx-auto">
     <h2 class="text-3xl font-bold text-center text-gray-900 mb-4">主な機能</h2>
-    <p class="text-gray-500 text-center mb-12">シフト管理に必要な機能をすべて搭載</p>
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      {% set features = [
-        ('個人シフト表示', 'スマートフォン最適化。自分のシフトだけをわかりやすく表示します。', 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z'),
-        ('自動シフト生成', '希望をもとに公平なシフトを自動生成。移動時間も考慮します。', 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z'),
-        ('フィルター・分類', '局別・学年別・日付別でシフトを整理して表示できます。', 'M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z'),
-        ('リアルタイム更新', '欠席・遅刻などの変更が即座に反映されます。', 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15'),
-        ('権限管理', '管理者は編集可能、一般ユーザーは閲覧のみ。適切な権限設定ができます。', 'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z'),
-        ('公平性調整', '担当回数を可視化し、偏りを防止するロジックを搭載しています。', 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z'),
-      ] %}
-      {% for title, desc, icon_path in features %}
-      <div class="bg-white rounded-xl p-6 border border-gray-100 hover:shadow-md transition-shadow">
-        <div class="w-10 h-10 bg-primary-light rounded-lg flex items-center justify-center mb-4">
-          <svg class="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ icon_path }}"/>
+    <p class="text-gray-500 text-center mb-12">大学祭運営に必要なシフト管理機能をすべて搭載</p>
+
+    <!-- 管理者機能 -->
+    <div class="mb-10">
+      <div class="flex items-center gap-2 mb-6">
+        <div class="w-6 h-6 bg-primary rounded flex items-center justify-center flex-shrink-0">
+          <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/>
           </svg>
         </div>
-        <h3 class="font-semibold text-gray-900 mb-2">{{ title }}</h3>
-        <p class="text-sm text-gray-500 leading-relaxed">{{ desc }}</p>
+        <h3 class="font-bold text-gray-800">管理者向け機能</h3>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        {% set admin_features = [
+          ('Excel/CSVで一括登録', '50人・100人のスタッフもまとめてインポート。手動追加も可能です。', 'M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'),
+          ('グリッド画面でシフト割当', 'メンバー×時間のグリッドをクリックするだけ。コピー機能で複数人に一括割り当てもできます。', 'M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z'),
+          ('役割を色分け管理', '受付・会場誘導・警備など仕事タイプに色をつけて視覚的に整理できます。', 'M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01'),
+          ('欠席・遅刻の通知管理', 'スタッフからの欠席・遅刻報告を通知パネルで一覧確認。承認・取消もワンクリックです。', 'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9'),
+          ('Excelでバックアップ', '当日用にシフト表をExcelでダウンロード。ネットなしでも確認できます。', 'M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'),
+          ('共同編集・LINEリンク連携', '複数人で同時に管理できる共同編集リンクを発行。LINEグループへのリンクもシフト画面に表示できます。', 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1'),
+        ] %}
+        {% for title, desc, icon_path in admin_features %}
+        <div class="bg-surface rounded-xl p-5 border border-gray-100 hover:shadow-md transition-shadow">
+          <div class="w-9 h-9 bg-primary-light rounded-lg flex items-center justify-center mb-3">
+            <svg class="w-4.5 h-4.5 text-primary" style="width:18px;height:18px" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ icon_path }}"/>
+            </svg>
+          </div>
+          <h3 class="font-semibold text-gray-900 mb-1.5 text-sm">{{ title }}</h3>
+          <p class="text-xs text-gray-500 leading-relaxed">{{ desc }}</p>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- スタッフ向け機能 -->
+    <div>
+      <div class="flex items-center gap-2 mb-6">
+        <div class="w-6 h-6 bg-green-500 rounded flex items-center justify-center flex-shrink-0">
+          <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+          </svg>
+        </div>
+        <h3 class="font-bold text-gray-800">スタッフ（閲覧者）向け機能</h3>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+        {% set member_features = [
+          ('パスワード不要でログイン', '名前またはメールアドレスだけでログイン。アプリのインストールも不要です。', 'M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0z'),
+          ('自分のシフトを確認', '日付タブで今日・明日のシフトをパッと確認。時間・役割・場所・一緒に入るメンバーも表示。', 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z'),
+          ('欠席・遅刻をその場で報告', 'アプリ上でボタンを押すだけ。ペアが来ていないときは代理報告もできます。', 'M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z'),
+          ('マイシフトをPDF保存', '自分のシフト表をPDFでダウンロードして印刷や手元保存が可能。', 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4'),
+        ] %}
+        {% for title, desc, icon_path in member_features %}
+        <div class="bg-green-50 rounded-xl p-5 border border-green-100 hover:shadow-md transition-shadow">
+          <div class="w-9 h-9 bg-white rounded-lg flex items-center justify-center mb-3 border border-green-100">
+            <svg class="text-green-500" style="width:18px;height:18px" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ icon_path }}"/>
+            </svg>
+          </div>
+          <h3 class="font-semibold text-gray-900 mb-1.5 text-sm">{{ title }}</h3>
+          <p class="text-xs text-gray-500 leading-relaxed">{{ desc }}</p>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- こんな場面で使える -->
+<section class="py-16 px-4 bg-surface">
+  <div class="max-w-4xl mx-auto">
+    <h2 class="text-2xl font-bold text-center text-gray-900 mb-2">こんな場面で使われています</h2>
+    <p class="text-gray-500 text-center mb-10 text-sm">大人数のイベント運営でも安心</p>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {% set usecases = [
+        ('🎪', '大学祭・学園祭', '複数日・多役割のシフト管理'),
+        ('🎵', '学内コンサート・公演', 'ステージ・音響・受付を一元管理'),
+        ('⚽', 'サークル・部活動', '練習・大会サポートのシフト調整'),
+        ('🎓', 'オープンキャンパス', 'ガイドや案内係のシフト管理'),
+      ] %}
+      {% for emoji, title, desc in usecases %}
+      <div class="bg-white rounded-xl p-5 border border-gray-100 text-center hover:shadow-md transition-shadow">
+        <div class="text-3xl mb-3">{{ emoji }}</div>
+        <h3 class="font-semibold text-gray-800 text-sm mb-1">{{ title }}</h3>
+        <p class="text-xs text-gray-400 leading-relaxed">{{ desc }}</p>
       </div>
       {% endfor %}
     </div>
@@ -142,11 +237,17 @@
 <!-- CTA -->
 <section class="py-20 px-4">
   <div class="max-w-2xl mx-auto text-center">
-    <h2 class="text-3xl font-bold text-gray-900 mb-4">今すぐ始めよう</h2>
-    <p class="text-gray-500 mb-8">無料で全機能をご利用いただけます。</p>
+    <div class="inline-flex items-center gap-2 bg-primary-light border border-primary/20 rounded-full px-4 py-1.5 mb-6 text-sm text-primary font-medium">
+      完全無料・登録1分
+    </div>
+    <h2 class="text-3xl font-bold text-gray-900 mb-4">今年の大学祭に、使ってみませんか</h2>
+    <p class="text-gray-500 mb-8 leading-relaxed">
+      アカウント登録後すぐにイベントを作成できます。<br/>
+      スタッフへの共有はURLを送るだけ。難しい設定は一切不要です。
+    </p>
     <a href="{{ url_for('auth.register') }}"
       class="inline-block px-10 py-4 text-white bg-primary rounded-xl font-semibold text-lg hover:bg-primary-dark transition-all shadow-lg shadow-primary/30">
-      新規登録（無料）
+      無料でシフトを作る
     </a>
     <p class="mt-4 text-sm text-gray-400">
       すでにアカウントをお持ちの方は
