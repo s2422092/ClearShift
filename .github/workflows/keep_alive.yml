@@ -9,6 +9,9 @@ on:
 jobs:
   ping:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # タイムスタンプのcommit・pushに必要
+
     steps:
       - name: Ping Supabase REST API to prevent auto-pause
         run: |
@@ -36,3 +39,15 @@ jobs:
           fi
 
           echo "Supabase keep-alive ping succeeded (status: $STATUS)."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Commit timestamp to keep Actions active
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          echo "Last keep-alive: $(date -u '+%Y-%m-%d %H:%M UTC')" > .github/keep_alive_log.txt
+          git add .github/keep_alive_log.txt
+          git commit -m "chore: keep-alive $(date -u '+%Y-%m-%d')" || echo "No changes to commit"
+          git push
