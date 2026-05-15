@@ -59,7 +59,10 @@ async function apiFetch(url, opts = {}) {
     }
   }
   // ネットワーク切断 or タイムアウト時は分かりやすいメッセージに変換
-  if (lastErr?.name === 'AbortError') throw new Error('通信がタイムアウトしました。Wi-Fi環境を確認してください。');
+  if (lastErr?.name === 'AbortError') {
+    if (isReadOnly) throw new Error('通信がタイムアウトしました。Wi-Fi環境を確認してください。');
+    throw new Error('応答に時間がかかっています。ページを更新して操作が反映されているか確認してください。');
+  }
   if (!navigator.onLine) throw new Error('オフラインです。接続を確認してください。');
   throw lastErr;
 }
