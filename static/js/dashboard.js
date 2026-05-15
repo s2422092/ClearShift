@@ -1264,13 +1264,18 @@ function renderShiftBoard() {
       if (bulkDeleteMode) {
         e.stopPropagation();
         const aid = parseInt(cell.dataset.aid);
+        // 仮ID（負の整数）は保存中のため選択不可
+        if (aid < 0) {
+          showToast('保存中のシフトは削除できません。少し待ってからお試しください。', true);
+          return;
+        }
         if (bulkDeleteSelected.has(aid)) {
           bulkDeleteSelected.delete(aid);
         } else {
           bulkDeleteSelected.add(aid);
         }
         updateBulkDeleteBanner();
-        renderShiftBoard(); // 全セル再描画でシフト全体をハイライト
+        renderShiftBoard();
         return;
       }
       // コピーモード
@@ -1987,15 +1992,38 @@ $('btn-bulk-delete-cancel').addEventListener('click', exitBulkDeleteMode);
 
 $('btn-bulk-delete-exec').addEventListener('click', async () => {
   if (!bulkDeleteSelected.size) return;
-  const ids = [...bulkDeleteSelected];
+  const ids = [...bulkDeleteSelected].filter(aid => aid > 0); // 仮IDを除外
+  if (!ids.length) { exitBulkDeleteMode(); return; }
+
+  // 楽観的UI：先にローカルから除去して即再描画
+  const removedPairs = [];
+  ids.forEach(aid => {
+    slots.forEach(slot => {
+      const a = slot.assignments.find(x => x.id === aid);
+      if (a) { removedPairs.push({ slot, assignment: a }); }
+    });
+  });
+  removedPairs.forEach(({ slot, assignment }) => {
+    slot.assignments = slot.assignments.filter(a => a.id !== assignment.id);
+  });
+  slots = slots.filter(s => s.assignments.length > 0 || s._pending);
+  exitBulkDeleteMode();
+  renderShiftBoard();
+
   try {
     await Promise.all(ids.map(aid =>
       apiFetch(`/api/assignments/${aid}`, { method: 'DELETE' })
     ));
-    exitBulkDeleteMode();
-    await loadShifts();
     showToast(`${ids.length}件のシフトを削除しました`);
-  } catch (err) { showToast(err.message, true); }
+  } catch (err) {
+    // 失敗時はロールバック
+    removedPairs.forEach(({ slot, assignment }) => {
+      slot.assignments.push(assignment);
+      if (!slots.find(s => s.id === slot.id)) slots.push(slot);
+    });
+    renderShiftBoard();
+    showToast(err.message, true);
+  }
 });
 
 $('btn-board-slot-submit').addEventListener('click', async function() {
@@ -3579,7 +3607,32 @@ document.addEventListener('click', (e) => {
   }
 });
 
-setInterval(loadNotifications, 30000);
+// ─── ポーリング設定 ───────────────────────────────────────────────────────────
+const POLL_OPTIONS = { 15: '15秒', 30: '30秒', 60: '1分', 120: '2分', 0: 'オフ' };
+let _pollIntervalSec = parseInt(localStorage.getItem('cs_poll_interval') ?? '60');
+let _pollTimer = null;
+
+function startPolling() {
+  if (_pollTimer) clearInterval(_pollTimer);
+  if (_pollIntervalSec === 0) return;
+  _pollTimer = setInterval(loadNotifications, _pollIntervalSec * 1000);
+}
+
+function renderPollSelect() {
+  const sel = $('poll-interval-select');
+  if (!sel) return;
+  sel.innerHTML = Object.entries(POLL_OPTIONS).map(([v, l]) =>
+    `<option value="${v}" ${parseInt(v) === _pollIntervalSec ? 'selected' : ''}>${l}</option>`
+  ).join('');
+  sel.onchange = () => {
+    _pollIntervalSec = parseInt(sel.value);
+    localStorage.setItem('cs_poll_interval', _pollIntervalSec);
+    startPolling();
+  };
+}
+
+startPolling();
+renderPollSelect();
 loadNotifications();
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
