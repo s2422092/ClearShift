@@ -22,7 +22,7 @@ const STATUS_CLASS = { scheduled: 'badge-scheduled', absent: 'badge-absent', lat
 // ローカル開発時は空文字列になる
 const _API_ROOT = window.API_ROOT || '';
 
-function fetchWithTimeout(url, opts = {}, timeoutMs = 12000) {
+function fetchWithTimeout(url, opts = {}, timeoutMs = 30000) {
   const ctrl = new AbortController();
   const tid = setTimeout(() => ctrl.abort(), timeoutMs);
   return fetch(url, { ...opts, signal: ctrl.signal }).finally(() => clearTimeout(tid));

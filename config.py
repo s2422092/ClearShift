@@ -40,8 +40,8 @@ def _engine_options():
         return {
             'poolclass': NullPool,
             'connect_args': {
-                'sslmode': 'require',   # Supabase は SSL 必須
-                'connect_timeout': 5,   # Vercel 10秒タイムアウトの半分以内に収める
+                'sslmode': 'require',
+                'connect_timeout': 8,
             },
         }
     return {
