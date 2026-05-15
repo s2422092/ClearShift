@@ -2572,53 +2572,54 @@ $('form-add-job').addEventListener('submit', async e => {
   const isEdit = !!editingJobId;
   const targetId = editingJobId;
 
-  if (isEdit) {
-    // 楽観的更新
-    const idx = jobs.findIndex(j => j.id === targetId);
-    const prev = idx !== -1 ? { ...jobs[idx] } : null;
-    if (idx !== -1) jobs[idx] = { ...jobs[idx], ...body, _pending: true };
-    renderJobList();
-    modalAddJob.classList.add('hidden');
-    showToast('仕事を更新しました');
+  // ボタンをスピナーに切り替えて送信中を明示
+  const btn = $('btn-job-submit');
+  const origLabel = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = `<span class="flex items-center justify-center gap-2">
+    <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+    </svg>
+    送信中...
+  </span>`;
+  $('job-error').classList.add('hidden');
+  _savingStart();
 
-    try {
+  const _restoreBtn = () => {
+    btn.disabled = false;
+    btn.textContent = origLabel;
+  };
+
+  try {
+    if (isEdit) {
       const updated = await apiFetch(`/api/events/${EVENT_ID}/jobs/${targetId}`, {
         method: 'PATCH', body: JSON.stringify(body),
       });
       const i = jobs.findIndex(j => j.id === targetId);
       if (i !== -1) jobs[i] = updated;
       renderJobList();
-    } catch (err) {
-      if (prev && idx !== -1) jobs[idx] = prev;
-      renderJobList();
-      showToast('仕事の更新に失敗しました。', true);
-    }
-  } else {
-    // 楽観的追加
-    const tempId = _nextTempId();
-    const tempJob = { id: tempId, ...body, _pending: true };
-    jobs.push(tempJob);
-    renderJobList();
-    modalAddJob.classList.add('hidden');
-    showToast('仕事を追加しました');
-
-    try {
+      modalAddJob.classList.add('hidden');
+      _restoreBtn();
+      _savingEnd();
+      showToast('仕事を更新しました');
+    } else {
       const created = await apiFetch(`/api/events/${EVENT_ID}/jobs`, {
         method: 'POST', body: JSON.stringify(body),
       });
-      const i = jobs.findIndex(j => j.id === tempId);
-      if (i !== -1) {
-        jobs[i] = created;
-      } else if (!jobs.find(j => j.id === created.id)) {
-        // loadShiftsで仮ジョブが消えていた場合でも実データを追加
-        jobs.push(created);
-      }
+      if (!jobs.find(j => j.id === created.id)) jobs.push(created);
       renderJobList();
-    } catch (err) {
-      jobs = jobs.filter(j => j.id !== tempId);
-      renderJobList();
-      showToast('仕事の追加に失敗しました。', true);
+      modalAddJob.classList.add('hidden');
+      _restoreBtn();
+      _savingEnd();
+      showToast('仕事を追加しました');
     }
+  } catch (err) {
+    _savingEnd(true);
+    _restoreBtn();
+    const errEl = $('job-error');
+    errEl.textContent = err.message;
+    errEl.classList.remove('hidden');
   }
 });
 
