@@ -2562,7 +2562,7 @@ $('form-add-job').addEventListener('submit', async e => {
     title:          $('job-title').value.trim(),
     description:    $('job-description').value.trim(),
     location:       $('job-location').value.trim(),
-    color:          $('job-color').value || '#4DA3FF',
+    color:          ($('job-color')?.value) || '#4DA3FF',
     required_count: jobReqIntervalMin ? 1 : (parseInt($('job-count').value) || 1),
     requirements,
     allowed_departments,
