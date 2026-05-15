@@ -479,20 +479,23 @@ def api_delete_member_shifts(event_id, member_id):
     query = ShiftAssignment.query.filter_by(member_id=member_id).join(ShiftSlot).filter(
         ShiftSlot.event_id == event_id
     )
-    if date_str:
-        query = query.filter(ShiftSlot.date == date.fromisoformat(date_str))
-    if start_time_str and end_time_str:
-        sp = start_time_str.split(':')
-        ep = end_time_str.split(':')
-        start_t = time_type(int(sp[0]), int(sp[1]))
-        end_t   = time_type(int(ep[0]), int(ep[1]))
-        # 指定範囲と重なるスロット（開始 < end_t かつ 終了 > start_t）
-        query = query.filter(ShiftSlot.start_time < end_t, ShiftSlot.end_time > start_t)
+    try:
+        if date_str:
+            query = query.filter(ShiftSlot.date == date.fromisoformat(date_str))
+        if start_time_str and end_time_str:
+            sp = start_time_str.split(':')
+            ep = end_time_str.split(':')
+            start_t = time_type(int(sp[0]), int(sp[1]))
+            end_t   = time_type(int(ep[0]), int(ep[1]))
+            query = query.filter(ShiftSlot.start_time < end_t, ShiftSlot.end_time > start_t)
+    except (ValueError, IndexError):
+        return jsonify({'error': '日付・時間の形式が正しくありません。'}), 400
 
     assignments = query.all()
     for a in assignments:
         db.session.delete(a)
     db.session.commit()
+    _invalidate_event_cache(event_id)
     return jsonify({'ok': True, 'deleted': len(assignments)})
 
 

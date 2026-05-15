@@ -165,8 +165,9 @@ def api_all_shifts(event_id):
 
     date_str = request.args.get('date')
 
-    # date 指定あり → 1日分のみ（キャッシュキーに日付を含める）
-    cache_key = f'viewer_shifts_{event_id}_{date_str}' if date_str else f'viewer_shifts_{event_id}'
+    # バージョン番号を含めることで admin 側の _invalidate_event_cache で確実に無効化される
+    ver = cache.get(f'cache_ver_{event_id}') or 0
+    cache_key = f'viewer_shifts_v{ver}_{event_id}_{date_str}' if date_str else f'viewer_shifts_v{ver}_{event_id}'
     cached = cache.get(cache_key)
     if cached is not None:
         return jsonify(cached)
@@ -291,6 +292,8 @@ def api_submit_availability(event_id):
             ))
 
     db.session.commit()
+    # 管理画面の shift_data キャッシュを無効化（希望提出状況が変わるため）
+    cache.delete(f'shift_data_{event_id}')
     return jsonify({'ok': True})
 
 
