@@ -2237,9 +2237,11 @@ $('btn-board-slot-submit').addEventListener('click', async function() {
         member_id: memberId,
       }),
     });
-    // ③ 仮データを実データに差し替え（重複防止）
+    // ③ 仮データを実データに差し替え
+    // 同じスロットIDが既存の場合は上書き（複数メンバーが同スロットを共有する場合に最新assignments反映）
     slots = slots.filter(s => s.id !== tempSlotId);
-    if (!slots.find(s => s.id === realSlot.id)) slots.push(realSlot);
+    const _existIdx = slots.findIndex(s => s.id === realSlot.id);
+    if (_existIdx !== -1) { slots[_existIdx] = realSlot; } else { slots.push(realSlot); }
     renderShiftBoard();
     _savingEnd();
   } catch (err) {
