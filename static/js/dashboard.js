@@ -183,6 +183,55 @@ async function withLoading(btn, fn) {
 let _tempIdSeq = -1;
 function _nextTempId() { return _tempIdSeq--; }
 
+// ─── 保存中ステータス管理 ─────────────────────────────────────────────────────
+let _saveCount = 0;
+let _saveCompleteTimer = null;
+
+function _savingStart() {
+  _saveCount++;
+  _updateSaveStatus();
+}
+
+function _savingEnd(failed = false) {
+  _saveCount = Math.max(0, _saveCount - 1);
+  _updateSaveStatus(failed);
+}
+
+function _updateSaveStatus(failed = false) {
+  const bar    = $('save-status-bar');
+  const text   = $('save-status-text');
+  const spin   = $('save-status-spinner');
+  const check  = $('save-status-check');
+  if (!bar) return;
+
+  if (_saveCompleteTimer) { clearTimeout(_saveCompleteTimer); _saveCompleteTimer = null; }
+
+  if (_saveCount > 0) {
+    bar.classList.remove('hidden', 'bg-green-50', 'border-green-100', 'bg-red-50', 'border-red-100');
+    bar.classList.add('flex', 'bg-blue-50', 'border-blue-100');
+    spin.classList.remove('hidden');
+    check.classList.add('hidden');
+    text.className = 'text-xs font-medium text-blue-700';
+    text.textContent = `保存中... ${_saveCount}件`;
+  } else if (failed) {
+    bar.classList.remove('hidden', 'bg-blue-50', 'border-blue-100');
+    bar.classList.add('flex', 'bg-red-50', 'border-red-100');
+    spin.classList.add('hidden');
+    check.classList.add('hidden');
+    text.className = 'text-xs font-medium text-red-600';
+    text.textContent = '保存に失敗しました。ページを更新して確認してください。';
+    _saveCompleteTimer = setTimeout(() => { bar.classList.add('hidden'); bar.classList.remove('flex'); }, 4000);
+  } else {
+    bar.classList.remove('hidden', 'bg-blue-50', 'border-blue-100');
+    bar.classList.add('flex', 'bg-green-50', 'border-green-100');
+    spin.classList.add('hidden');
+    check.classList.remove('hidden');
+    text.className = 'text-xs font-medium text-green-700';
+    text.textContent = '保存完了';
+    _saveCompleteTimer = setTimeout(() => { bar.classList.add('hidden'); bar.classList.remove('flex'); }, 2000);
+  }
+}
+
 // ─── Tab switching ────────────────────────────────────────────────────────────
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -1038,6 +1087,7 @@ function renderShiftBoard() {
             spanPx,
             jobColor,
             pending: !!slot._pending,
+            error:   !!slot._error,
           });
         }
       });
@@ -1156,8 +1206,9 @@ function renderShiftBoard() {
             ? `<span class="absolute top-0 left-0 flex items-center px-1 text-[9px] font-semibold whitespace-nowrap pointer-events-none z-[1]" style="height:100%;width:${cell.spanPx}px;color:${isSelected ? '#EF4444' : cell.jobColor}">${cell.role}</span>`
             : '';
           const selectedRing = isSelected ? 'outline:2px solid #EF4444;outline-offset:-2px;' : '';
-          const pendingCls = cell.pending ? 'animate-pulse opacity-60' : '';
-          return `<td style="min-width:${cw}px;width:${cw}px;background:${bg};${border}${selectedRing}"
+          const pendingCls = cell.error ? 'opacity-60' : cell.pending ? 'animate-pulse opacity-70' : '';
+          const pendingStyle = cell.error ? 'outline:2px solid #EF4444;outline-offset:-2px;' : '';
+          return `<td style="min-width:${cw}px;width:${cw}px;background:${bg};${border}${selectedRing}${pendingStyle}"
             class="board-cell-occupied relative h-10 cursor-pointer border-b border-b-white/30 ${pendingCls} ${cb}"
             data-slot="${cell.slotId}" data-aid="${cell.assignmentId}" data-member="${m.id}" data-time="${col}">${roleText}</td>`;
         }
@@ -2092,6 +2143,7 @@ $('btn-board-slot-submit').addEventListener('click', async function() {
     slots.push(optimisticNewSlot);
     closeBoardSlotModal();
     renderShiftBoard();
+    _savingStart();
 
     // ② バックグラウンドで1リクエストに統合して送信
     try {
@@ -2110,9 +2162,6 @@ $('btn-board-slot-submit').addEventListener('click', async function() {
           member_id: memberId,
         }),
       });
-      // ③ 仮スロットを実スロットに差し替え
-      //   実スロットIDが既に slots にある（既存スロットを再利用した場合）なら
-      //   そちらを上書きマージし、tempスロットは除去
       slots = slots.filter(s => s.id !== tempSlotId);
       const existingReal = slots.find(s => s.id === newSlot.id);
       if (existingReal) {
@@ -2121,12 +2170,17 @@ $('btn-board-slot-submit').addEventListener('click', async function() {
         slots.push(newSlot);
       }
       renderShiftBoard();
-      showToast('シフトを変更しました');
+      _savingEnd();
     } catch (err) {
-      // ④ 失敗時：仮スロット除去 & 旧スロットを元に戻す
-      slots = slots.filter(s => s.id !== tempSlotId);
-      if (!slots.find(s => s.id === slotId)) slots.push(oldSlot);
+      // 失敗時：仮スロットを赤くしてから旧スロットを復元
+      slots = slots.map(s => s.id === tempSlotId ? { ...s, _error: true } : s);
       renderShiftBoard();
+      setTimeout(() => {
+        slots = slots.filter(s => s.id !== tempSlotId);
+        if (!slots.find(s => s.id === slotId)) slots.push(oldSlot);
+        renderShiftBoard();
+      }, 1500);
+      _savingEnd(true);
       showToast(err.message, true);
     }
     return;
@@ -2166,6 +2220,7 @@ $('btn-board-slot-submit').addEventListener('click', async function() {
   slots.push(tempSlot);
   closeBoardSlotModal();
   renderShiftBoard();
+  _savingStart();
 
   // ② バックグラウンドで1リクエストに統合して送信
   try {
@@ -2186,11 +2241,16 @@ $('btn-board-slot-submit').addEventListener('click', async function() {
     slots = slots.filter(s => s.id !== tempSlotId);
     if (!slots.find(s => s.id === realSlot.id)) slots.push(realSlot);
     renderShiftBoard();
-    showToast('シフトを登録しました');
+    _savingEnd();
   } catch (err) {
-    // ④ 失敗時は仮スロットを削除してロールバック
-    slots = slots.filter(s => s.id !== tempSlotId);
+    // ④ 失敗時は仮スロットを赤くしてからロールバック
+    slots = slots.map(s => s.id === tempSlotId ? { ...s, _error: true } : s);
     renderShiftBoard();
+    setTimeout(() => {
+      slots = slots.filter(s => s.id !== tempSlotId);
+      renderShiftBoard();
+    }, 1500);
+    _savingEnd(true);
     showToast(err.message, true);
   }
 });

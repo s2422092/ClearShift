@@ -231,6 +231,17 @@
             </div>
           </div>
         </div>
+        <!-- 保存中ステータスバッジ -->
+        <div id="save-status-bar" class="hidden items-center gap-2 px-4 py-1.5 bg-blue-50 border-b border-blue-100 flex-shrink-0">
+          <svg id="save-status-spinner" class="w-3.5 h-3.5 text-blue-500 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+          </svg>
+          <svg id="save-status-check" class="hidden w-3.5 h-3.5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+          </svg>
+          <span id="save-status-text" class="text-xs font-medium text-blue-700"></span>
+        </div>
         <!-- 選択ヒント（通常モード） -->
         <div id="board-hint" class="hidden bg-primary-light border-b border-primary/20 px-4 py-2 flex items-center gap-3 flex-shrink-0">
           <svg class="w-4 h-4 flex-shrink-0 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
