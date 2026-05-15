@@ -123,8 +123,17 @@
         {{ tab_label }}
       </button>
       {% endfor %}
+      <!-- ポーリング間隔 -->
+      <div class="ml-auto flex items-center gap-1 text-xs text-gray-400 mr-1">
+        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+        <select id="poll-interval-select"
+          class="text-xs text-gray-500 bg-transparent border-none outline-none cursor-pointer pr-1">
+        </select>
+      </div>
       <!-- 通知ベル -->
-      <div class="ml-auto relative">
+      <div class="relative">
         <button id="btn-notifications"
           class="relative p-2 text-gray-400 hover:text-gray-600 transition-colors rounded-lg hover:bg-surface">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
