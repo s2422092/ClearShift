@@ -865,7 +865,11 @@ def api_create_job(event_id):
     title = (data.get('title') or '').strip()
     if not title:
         return jsonify({'error': '仕事タイトルを入力してください。'}), 400
-    color = _pick_job_color(event_id)
+    color = (data.get('color') or '').strip()
+    if not color.startswith('#') or len(color) not in (4, 7):
+        color = _pick_job_color(event_id)
+    req = data.get('requirements')
+    depts = data.get('allowed_departments')
     job = JobType(
         event_id=event_id,
         title=title,
@@ -873,9 +877,12 @@ def api_create_job(event_id):
         location=(data.get('location') or '').strip() or None,
         required_count=int(data.get('required_count') or 1),
         color=color,
+        requirements_json=_jdump(req) if req else None,
+        allowed_departments_json=_jdump(depts) if depts else None,
     )
     db.session.add(job)
     db.session.commit()
+    _invalidate_event_cache(event_id)
     return jsonify(job.to_dict()), 201
 
 
