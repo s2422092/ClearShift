@@ -179,9 +179,6 @@ async function withLoading(btn, fn) {
   }
 }
 
-// シフト登録専用の排他フラグ（withLoading より上位でブロック）
-let _shiftSubmitting = false;
-
 // 楽観的UI用の一時ID（負の整数を使う）
 let _tempIdSeq = -1;
 function _nextTempId() { return _tempIdSeq--; }
@@ -1700,25 +1697,77 @@ $('btn-range-delete-cancel').addEventListener('click', showBoardSlotMain);
 $('btn-range-delete-confirm').addEventListener('click', async () => {
   if (!pendingBoardSlot) return;
   const { memberId, startTime, endTime } = pendingBoardSlot;
+  const startM = timeToMin(startTime);
+  const endM   = timeToMin(endTime);
+
+  // 楽観的UI：対象の範囲に重なるアサインをローカルから即時除去
+  const removedPairs = [];
+  slots.forEach(slot => {
+    if (slot.date !== currentDay) return;
+    const sM = timeToMin(slot.start_time);
+    const eM = timeToMin(slot.end_time);
+    if (sM >= endM || eM <= startM) return; // 重複なし
+    const hit = slot.assignments.find(a => a.member_id === memberId);
+    if (!hit) return;
+    removedPairs.push({ slot, assignment: hit });
+    slot.assignments = slot.assignments.filter(a => a.id !== hit.id);
+  });
+  slots = slots.filter(s => s.assignments.length > 0 || s._pending);
+  closeBoardSlotModal();
+  renderShiftBoard();
+
   try {
     const res = await apiFetch(`/api/events/${EVENT_ID}/members/${memberId}/shifts`, {
       method: 'DELETE',
       body: JSON.stringify({ date: currentDay, start_time: startTime, end_time: endTime }),
     });
-    closeBoardSlotModal();
-    await loadShifts();
     showToast(`${res.deleted}件のシフトを削除しました`);
-  } catch (err) { showToast(err.message, true); }
+  } catch (err) {
+    // 失敗時はロールバック
+    removedPairs.forEach(({ slot, assignment }) => {
+      slot.assignments.push(assignment);
+      if (!slots.find(s => s.id === slot.id)) slots.push(slot);
+    });
+    renderShiftBoard();
+    showToast(err.message, true);
+  }
 });
 
 $('btn-delete-confirm').addEventListener('click', async () => {
   if (!editingSlot) return;
-  try {
-    await apiFetch(`/api/assignments/${editingSlot.assignmentId}`, { method: 'DELETE' });
+  const { assignmentId, slotId } = editingSlot;
+
+  // 保存中の仮スロット（負のID）は削除不可
+  if (assignmentId < 0) {
     closeBoardSlotModal();
-    await loadShifts();
+    showToast('保存中のシフトです。少し待ってから削除してください。', true);
+    return;
+  }
+
+  // 楽観的UI：先にローカルから除去して即再描画
+  const targetSlot = slots.find(s => s.id === slotId);
+  const removedAssignment = targetSlot?.assignments.find(a => a.id === assignmentId);
+  if (targetSlot) {
+    targetSlot.assignments = targetSlot.assignments.filter(a => a.id !== assignmentId);
+    if (targetSlot.assignments.length === 0) {
+      slots = slots.filter(s => s.id !== slotId);
+    }
+  }
+  closeBoardSlotModal();
+  renderShiftBoard();
+
+  try {
+    await apiFetch(`/api/assignments/${assignmentId}`, { method: 'DELETE' });
     showToast('シフトを削除しました');
-  } catch (err) { showToast(err.message, true); }
+  } catch (err) {
+    // 失敗時はロールバック
+    if (targetSlot && removedAssignment) {
+      targetSlot.assignments.push(removedAssignment);
+      if (!slots.find(s => s.id === slotId)) slots.push(targetSlot);
+      renderShiftBoard();
+    }
+    showToast(err.message, true);
+  }
 });
 $('btn-cancel-board-select').addEventListener('click', () => {
   boardSelectStart = null; boardHoverTime = null;
@@ -1950,7 +1999,6 @@ $('btn-bulk-delete-exec').addEventListener('click', async () => {
 });
 
 $('btn-board-slot-submit').addEventListener('click', async function() {
-  if (_shiftSubmitting) return;
   const errEl = $('board-slot-error');
   errEl.classList.add('hidden');
 
@@ -1962,13 +2010,11 @@ $('btn-board-slot-submit').addEventListener('click', async function() {
     return;
   }
 
-  _shiftSubmitting = true;
-
   // ── 編集モード：既存スロットの仕事を差し替え ────────────────────
   if (editingSlot) {
     const { slotId, assignmentId, memberId } = editingSlot;
     const oldSlot = slots.find(s => s.id === slotId);
-    if (!oldSlot) { _shiftSubmitting = false; return; }
+    if (!oldSlot) return;
 
     // 旧スロットに残る他メンバーのアサインメント
     const otherAssignments = oldSlot.assignments.filter(a => a.id !== assignmentId);
@@ -2052,12 +2098,11 @@ $('btn-board-slot-submit').addEventListener('click', async function() {
       renderShiftBoard();
       showToast(err.message, true);
     }
-    _shiftSubmitting = false;
     return;
   }
 
   // ── 新規登録モード ──────────────────────────────────────────────
-  if (!pendingBoardSlot) { _shiftSubmitting = false; return; }
+  if (!pendingBoardSlot) return;
   const { memberId, startTime, endTime } = pendingBoardSlot;
 
   // ① 楽観的UI：仮スロットを即時追加してボードに表示
@@ -2117,7 +2162,6 @@ $('btn-board-slot-submit').addEventListener('click', async function() {
     renderShiftBoard();
     showToast(err.message, true);
   }
-  _shiftSubmitting = false;
 });
 
 document.querySelectorAll('.interval-btn').forEach(btn => {
