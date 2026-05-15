@@ -868,9 +868,12 @@ async function loadShifts() {
   try {
     // 1リクエストで全データ取得（slots + members + jobs + absences）
     const data = await apiFetch(`/api/events/${EVENT_ID}/shift-data`);
-    slots   = data.slots;
+    // 保存中の仮データ（負のID）を保持してサーバーデータで上書き
+    const pendingSlots = slots.filter(s => s.id < 0);
+    const pendingJobs  = jobs.filter(j => j.id < 0);
+    slots   = [...data.slots, ...pendingSlots];
     members = data.members;
-    jobs    = data.jobs;
+    jobs    = [...data.jobs, ...pendingJobs];
 
     // absences をローカル構造に展開
     absentMemberDays.clear();
@@ -2179,9 +2182,9 @@ $('btn-board-slot-submit').addEventListener('click', async function() {
         member_id: memberId,
       }),
     });
-    // ③ 仮データを実データに差し替え（ほぼ視覚変化なし）
+    // ③ 仮データを実データに差し替え（重複防止）
     slots = slots.filter(s => s.id !== tempSlotId);
-    slots.push(realSlot);
+    if (!slots.find(s => s.id === realSlot.id)) slots.push(realSlot);
     renderShiftBoard();
     showToast('シフトを登録しました');
   } catch (err) {
@@ -2544,7 +2547,12 @@ $('form-add-job').addEventListener('submit', async e => {
         method: 'POST', body: JSON.stringify(body),
       });
       const i = jobs.findIndex(j => j.id === tempId);
-      if (i !== -1) jobs[i] = created;
+      if (i !== -1) {
+        jobs[i] = created;
+      } else if (!jobs.find(j => j.id === created.id)) {
+        // loadShiftsで仮ジョブが消えていた場合でも実データを追加
+        jobs.push(created);
+      }
       renderJobList();
     } catch (err) {
       jobs = jobs.filter(j => j.id !== tempId);
