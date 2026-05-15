@@ -31,40 +31,32 @@ def _user_events():
 
 
 def _invalidate_event_cache(event_id):
-    """シフトデータが変更されたときに管理・ビューアー両方のキャッシュを削除する"""
+    """シフトデータが変更されたときにキャッシュバージョンをインクリメントして無効化する。
+    個別キー削除（DBクエリ多発）の代わりにバージョン番号方式で高速化。"""
     cache.delete(f'shift_data_{event_id}')
     cache.delete(f'viewer_shifts_{event_id}')
     cache.delete(f'viewer_members_{event_id}')
     cache.delete(f'viewer_jobs_{event_id}')
-
-    # メンバー個別の my_shifts キャッシュを全員分削除
-    # （管理者の編集が閲覧者に即時反映されるよう）
-    member_ids = [
-        row[0] for row in
-        db.session.query(EventMember.id).filter_by(event_id=event_id).all()
-    ]
-    for mid in member_ids:
-        cache.delete(f'viewer_my_shifts_v3_{event_id}_{mid}')
-
-    # 日付別キャッシュも全日程分削除
-    from models import Event as _Event
-    event = _Event.query.get(event_id)
-    if event:
-        from datetime import timedelta
-        cur = event.start_date
-        while cur <= event.end_date:
-            cache.delete(f'viewer_shifts_{event_id}_{cur.isoformat()}')
-            cur += timedelta(days=1)
+    # バージョンカウンターをインクリメント（閲覧者の my_shifts キャッシュを一括無効化）
+    ver_key = f'cache_ver_{event_id}'
+    try:
+        cache.inc(ver_key)
+    except Exception:
+        cache.set(ver_key, 1, timeout=86400)
 
 
 def _can_access_event(event_id):
-    """ユーザーがそのイベントを編集できるか確認"""
+    """ユーザーがそのイベントを編集できるか確認（リクエスト内メモ化）"""
+    from flask import g
+    key = f'_ace_{event_id}'
+    if hasattr(g, key):
+        return getattr(g, key)
     event = Event.query.get_or_404(event_id)
-    if event.creator_id == current_user.id:
-        return event
-    if EventCollaborator.query.filter_by(event_id=event_id, user_id=current_user.id).first():
-        return event
-    abort(403)
+    if event.creator_id != current_user.id:
+        if not EventCollaborator.query.filter_by(event_id=event_id, user_id=current_user.id).first():
+            abort(403)
+    setattr(g, key, event)
+    return event
 
 
 @admin_bp.route('/dashboard')
@@ -662,53 +654,70 @@ def api_create_slot_with_assignment(event_id):
     member_id = data.get('member_id')
     if not member_id:
         return jsonify({'error': 'member_id が必要です。'}), 400
-    member = EventMember.query.filter_by(id=member_id, event_id=event_id).first_or_404()
+    job_type_id = int(data['job_type_id']) if data.get('job_type_id') else None
 
-    job_type_id = data.get('job_type_id')
-    if job_type_id:
-        job = JobType.query.get(job_type_id)
-        if job:
-            allowed = job.get_allowed_departments()
-            if allowed and member.department not in allowed:
-                return jsonify({'error': f'この仕事は {", ".join(allowed)} のメンバーのみ担当できます。'}), 400
+    # member + job を1回のSQLで取得（2クエリ→1クエリ）
+    from sqlalchemy import text as sa_text
+    row = db.session.execute(
+        sa_text('''
+            SELECT em.id, em.department, jt.requirements_json, jt.allowed_departments_json
+            FROM event_members em
+            LEFT JOIN job_types jt ON jt.id = :jid
+            WHERE em.id = :mid AND em.event_id = :eid
+        '''), {'mid': member_id, 'eid': event_id, 'jid': job_type_id}
+    ).fetchone()
+    if not row:
+        abort(404)
+    member_dept = row[1]
+    allowed_json = row[3]
+    if allowed_json:
+        import json as _j
+        allowed = _j.loads(allowed_json)
+        if allowed and member_dept not in allowed:
+            return jsonify({'error': f'この仕事は {", ".join(allowed)} のメンバーのみ担当できます。'}), 400
 
-    # 重複スロット → 再利用
-    slot = ShiftSlot.query.filter_by(
-        event_id=event_id, date=slot_date,
-        start_time=start_t, end_time=end_t,
-        job_type_id=int(job_type_id) if job_type_id else None,
-    ).first()
-    if not slot:
+    # 重複スロット・重複チェック・既存アサインを1SQLで確認
+    existing_data = db.session.execute(
+        sa_text('''
+            SELECT
+                ss.id as slot_id,
+                (SELECT COUNT(*) FROM shift_assignments sa2
+                 JOIN shift_slots ss2 ON sa2.slot_id = ss2.id
+                 WHERE sa2.member_id = :mid AND ss2.event_id = :eid
+                   AND ss2.date = :dt AND ss2.start_time < :et AND ss2.end_time > :st
+                   AND ss2.id != COALESCE(ss.id, -1)) as overlap_count,
+                (SELECT sa3.id FROM shift_assignments sa3
+                 WHERE sa3.slot_id = ss.id AND sa3.member_id = :mid LIMIT 1) as existing_assign_id
+            FROM (SELECT id FROM shift_slots
+                  WHERE event_id = :eid AND date = :dt
+                    AND start_time = :st AND end_time = :et
+                    AND (job_type_id = :jid OR (:jid IS NULL AND job_type_id IS NULL))
+                  LIMIT 1) ss
+        '''), {'mid': member_id, 'eid': event_id, 'dt': slot_date,
+               'st': start_t, 'et': end_t, 'jid': job_type_id}
+    ).fetchone()
+
+    existing_slot_id    = existing_data[0] if existing_data else None
+    overlap_count       = existing_data[1] if existing_data else 0
+    existing_assign_id  = existing_data[2] if existing_data else None
+
+    if overlap_count and int(overlap_count) > 0:
+        return jsonify({'error': 'この時間帯には既に別のシフトが割り当て済みです。'}), 409
+
+    if existing_slot_id:
+        slot = db.session.get(ShiftSlot, existing_slot_id)
+    else:
         slot = ShiftSlot(
-            event_id=event_id,
-            job_type_id=int(job_type_id) if job_type_id else None,
+            event_id=event_id, job_type_id=job_type_id,
             date=slot_date, start_time=start_t, end_time=end_t,
             role=(data.get('role') or '').strip() or None,
             location=(data.get('location') or '').strip() or None,
             required_count=int(data.get('required_count', 1)),
         )
         db.session.add(slot)
-        db.session.flush()  # slot.id を確定
+        db.session.flush()
 
-    # 時間帯重複チェック
-    overlap = (
-        db.session.query(ShiftAssignment)
-        .join(ShiftSlot, ShiftAssignment.slot_id == ShiftSlot.id)
-        .filter(
-            ShiftAssignment.member_id == member_id,
-            ShiftSlot.event_id == event_id,
-            ShiftSlot.date == slot_date,
-            ShiftSlot.start_time < end_t,
-            ShiftSlot.end_time > start_t,
-            ShiftSlot.id != slot.id,
-        ).first()
-    )
-    if overlap:
-        db.session.rollback()
-        return jsonify({'error': 'この時間帯には既に別のシフトが割り当て済みです。'}), 409
-
-    existing = ShiftAssignment.query.filter_by(slot_id=slot.id, member_id=member_id).first()
-    if not existing:
+    if not existing_assign_id:
         db.session.add(ShiftAssignment(slot_id=slot.id, member_id=member_id))
 
     db.session.commit()
@@ -737,40 +746,67 @@ def api_replace_slot_with_assignment(event_id):
         return jsonify({'error': '日付・時間の形式が正しくありません。'}), 400
 
     member_id = data.get('member_id')
-    member = EventMember.query.filter_by(id=member_id, event_id=event_id).first_or_404()
+    job_type_id = int(data['job_type_id']) if data.get('job_type_id') else None
+    from sqlalchemy import text as sa_text
+    import json as _j
 
-    job_type_id = data.get('job_type_id')
-    if job_type_id:
-        job = JobType.query.get(job_type_id)
-        if job:
-            allowed = job.get_allowed_departments()
-            if allowed and member.department not in allowed:
-                return jsonify({'error': f'この仕事は {", ".join(allowed)} のメンバーのみ担当できます。'}), 400
+    # member + job を1SQLで確認
+    row = db.session.execute(
+        sa_text('''
+            SELECT em.department, jt.allowed_departments_json
+            FROM event_members em
+            LEFT JOIN job_types jt ON jt.id = :jid
+            WHERE em.id = :mid AND em.event_id = :eid
+        '''), {'mid': member_id, 'eid': event_id, 'jid': job_type_id}
+    ).fetchone()
+    if not row:
+        abort(404)
+    if row[1]:
+        allowed = _j.loads(row[1])
+        if allowed and row[0] not in allowed:
+            return jsonify({'error': f'この仕事は {", ".join(allowed)} のメンバーのみ担当できます。'}), 400
 
-    # 旧アサインメントのみ削除（同じスロットに他メンバーが居ればスロット自体は残す）
-    old_a = ShiftAssignment.query.get(old_assignment_id)
-    if old_a:
-        db.session.delete(old_a)
-    db.session.flush()
+    # 旧アサイン削除 + 旧スロット残数確認を1SQLで
+    db.session.execute(
+        sa_text('DELETE FROM shift_assignments WHERE id = :aid'),
+        {'aid': old_assignment_id}
+    )
+    remaining = db.session.execute(
+        sa_text('SELECT COUNT(*) FROM shift_assignments WHERE slot_id = :sid'),
+        {'sid': old_slot_id}
+    ).scalar()
+    if remaining == 0:
+        db.session.execute(
+            sa_text('DELETE FROM shift_slots WHERE id = :sid AND event_id = :eid'),
+            {'sid': old_slot_id, 'eid': event_id}
+        )
 
-    # 旧スロットに残アサインメントがなくなった場合のみスロットも削除
-    old_s = ShiftSlot.query.filter_by(id=old_slot_id, event_id=event_id).first()
-    if old_s:
-        remaining = ShiftAssignment.query.filter_by(slot_id=old_slot_id).count()
-        if remaining == 0:
-            db.session.delete(old_s)
-    db.session.flush()
+    # 新スロット検索 + 重複チェックを1SQLで
+    check = db.session.execute(
+        sa_text('''
+            SELECT
+                (SELECT id FROM shift_slots
+                 WHERE event_id = :eid AND date = :dt AND start_time = :st AND end_time = :et
+                   AND (job_type_id = :jid OR (:jid IS NULL AND job_type_id IS NULL))
+                 LIMIT 1) as slot_id,
+                (SELECT COUNT(*) FROM shift_assignments sa
+                 JOIN shift_slots ss ON sa.slot_id = ss.id
+                 WHERE sa.member_id = :mid AND ss.event_id = :eid
+                   AND ss.date = :dt AND ss.start_time < :et AND ss.end_time > :st) as overlap
+        '''), {'mid': member_id, 'eid': event_id, 'dt': slot_date,
+               'st': start_t, 'et': end_t, 'jid': job_type_id}
+    ).fetchone()
 
-    # 新スロット作成（重複スロット再利用）
-    slot = ShiftSlot.query.filter_by(
-        event_id=event_id, date=slot_date,
-        start_time=start_t, end_time=end_t,
-        job_type_id=int(job_type_id) if job_type_id else None,
-    ).first()
-    if not slot:
+    if check and int(check[1] or 0) > 0:
+        db.session.rollback()
+        return jsonify({'error': 'この時間帯には既に別のシフトが割り当て済みです。'}), 409
+
+    existing_slot_id = check[0] if check else None
+    if existing_slot_id:
+        slot = db.session.get(ShiftSlot, existing_slot_id)
+    else:
         slot = ShiftSlot(
-            event_id=event_id,
-            job_type_id=int(job_type_id) if job_type_id else None,
+            event_id=event_id, job_type_id=job_type_id,
             date=slot_date, start_time=start_t, end_time=end_t,
             role=(data.get('role') or '').strip() or None,
             location=(data.get('location') or '').strip() or None,
@@ -779,27 +815,7 @@ def api_replace_slot_with_assignment(event_id):
         db.session.add(slot)
         db.session.flush()
 
-    # 時間帯重複チェック
-    overlap = (
-        db.session.query(ShiftAssignment)
-        .join(ShiftSlot, ShiftAssignment.slot_id == ShiftSlot.id)
-        .filter(
-            ShiftAssignment.member_id == member_id,
-            ShiftSlot.event_id == event_id,
-            ShiftSlot.date == slot_date,
-            ShiftSlot.start_time < end_t,
-            ShiftSlot.end_time > start_t,
-            ShiftSlot.id != slot.id,
-        ).first()
-    )
-    if overlap:
-        db.session.rollback()
-        return jsonify({'error': 'この時間帯には既に別のシフトが割り当て済みです。'}), 409
-
-    existing = ShiftAssignment.query.filter_by(slot_id=slot.id, member_id=member_id).first()
-    if not existing:
-        db.session.add(ShiftAssignment(slot_id=slot.id, member_id=member_id))
-
+    db.session.add(ShiftAssignment(slot_id=slot.id, member_id=member_id))
     db.session.commit()
     _invalidate_event_cache(event_id)
     return jsonify(slot.to_dict()), 201

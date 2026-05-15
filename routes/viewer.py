@@ -66,7 +66,8 @@ def api_my_shifts(event_id):
     if not member:
         return jsonify({'error': 'ログインしてください。'}), 401
 
-    cache_key = f'viewer_my_shifts_v3_{event_id}_{member.id}'
+    ver = cache.get(f'cache_ver_{event_id}') or 0
+    cache_key = f'viewer_my_shifts_v3_{event_id}_{member.id}_{ver}'
     cached = cache.get(cache_key)
     if cached is not None:
         return jsonify(cached)
