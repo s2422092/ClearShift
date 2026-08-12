@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /Users/yugo_suzuki/ClearShift remote -v)"
+    ]
+  }
+}
