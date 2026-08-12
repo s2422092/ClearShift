@@ -32,24 +32,69 @@ def _get_gc():
             ' pip install gspread google-auth を実行してください。'
         )
 
-    creds_json = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON', '').strip()
-    if not creds_json:
+    raw = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON', '').strip()
+    if not raw:
         raise ValueError(
             'GOOGLE_SERVICE_ACCOUNT_JSON 環境変数が設定されていません。'
             ' Vercel の Environment Variables にサービスアカウントの JSON を貼り付けてください。'
         )
 
-    try:
-        creds_dict = json.loads(creds_json)
-    except json.JSONDecodeError:
-        raise ValueError('GOOGLE_SERVICE_ACCOUNT_JSON の JSON が不正です。')
+    creds_dict = _parse_credentials(raw)
+
+    missing = [k for k in ('client_email', 'private_key', 'token_uri') if not creds_dict.get(k)]
+    if missing:
+        raise ValueError(
+            f'GOOGLE_SERVICE_ACCOUNT_JSON に {", ".join(missing)} がありません。'
+            ' サービスアカウントのキー JSON をそのまま貼り付けているか確認してください。'
+        )
 
     scopes = [
         'https://www.googleapis.com/auth/spreadsheets',
         'https://www.googleapis.com/auth/drive',
     ]
-    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    try:
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    except ValueError as e:
+        # 改行が \n のまま壊れているケースがここに来る
+        raise ValueError(
+            f'サービスアカウントの認証情報を読み込めませんでした: {e}'
+            ' 環境変数への貼り付けで private_key の改行が壊れている可能性があります。'
+            ' JSON を Base64 にエンコードした文字列でも設定できます。'
+        )
     return gspread.authorize(creds)
+
+
+def _parse_credentials(raw):
+    """
+    環境変数の値を認証情報の dict にする。
+
+    JSON をそのまま貼ると private_key の改行で壊れることがあるため、
+    Base64 でエンコードした文字列も受け付ける。
+    """
+    if raw.lstrip().startswith('{'):
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f'GOOGLE_SERVICE_ACCOUNT_JSON の JSON が不正です: {e}'
+                ' Base64 にエンコードした文字列でも設定できます。'
+            )
+
+    # Base64 とみなしてデコードを試みる
+    import base64
+    import binascii
+    try:
+        decoded = base64.b64decode(raw, validate=True).decode('utf-8')
+    except (binascii.Error, UnicodeDecodeError, ValueError):
+        raise ValueError(
+            'GOOGLE_SERVICE_ACCOUNT_JSON が JSON でも Base64 でもありません。'
+            ' サービスアカウントのキー JSON をそのまま貼り付けてください。'
+        )
+
+    try:
+        return json.loads(decoded)
+    except json.JSONDecodeError as e:
+        raise ValueError(f'Base64 をデコードした結果が JSON ではありません: {e}')
 
 
 # ── 色ユーティリティ ──────────────────────────────────────────────────────────
