@@ -2824,6 +2824,37 @@ $('btn-delete-event').addEventListener('click', async () => {
 
 // ── Excel エクスポート（<a> タグによる直接ダウンロードのため JS 不要） ────────────
 
+// ── Google スプレッドシート同期 ───────────────────────────────────────────────
+const btnSyncSheets = $('btn-sync-sheets');
+btnSyncSheets?.addEventListener('click', async () => {
+  const label  = $('sync-sheets-label');
+  const status = $('sync-sheets-status');
+  const original = label.textContent;
+
+  btnSyncSheets.disabled = true;
+  label.textContent = '同期中…';
+  status.textContent = 'Google スプレッドシートに書き込んでいます…';
+
+  try {
+    const res = await apiFetch(`/api/events/${EVENT_ID}/sync-sheets`, { method: 'POST' });
+
+    const link = $('link-sheets');
+    link.href = res.url;
+    link.classList.remove('hidden');
+
+    // サーバーは UTC の naive datetime を返すので Z を付けてローカル時刻に直す
+    const syncedAt = new Date(res.synced_at + 'Z').toLocaleString('ja-JP');
+    status.textContent = `最終同期: ${syncedAt}（${res.sheet_count}日分）`;
+    showToast(res.created ? 'スプレッドシートを作成しました' : 'スプレッドシートを更新しました');
+  } catch (err) {
+    status.textContent = '同期に失敗しました';
+    showToast(err.message, true);
+  } finally {
+    btnSyncSheets.disabled = false;
+    label.textContent = original;
+  }
+});
+
 // ─── Member Detail Modal ──────────────────────────────────────────────────────
 const modalMemberDetail = $('modal-member-detail');
 document.querySelectorAll('.member-detail-close').forEach(b =>

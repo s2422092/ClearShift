@@ -12,3 +12,5 @@ python-dotenv==1.0.1
 gunicorn==21.2.0
 openpyxl==3.1.5
 XlsxWriter==3.2.9
+gspread==6.2.1
+google-auth==2.56.3

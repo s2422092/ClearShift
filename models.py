@@ -45,6 +45,11 @@ class Event(db.Model):
     custom_link_url   = db.Column(db.String(1000), nullable=True)   # 閲覧者向けカスタムリンクURL
     custom_link_label = db.Column(db.String(100),  nullable=True)   # リンクのボタンラベル
 
+    # Google スプレッドシート同期先（同じシートを上書き更新するため ID を保持する）
+    sheets_id        = db.Column(db.String(100), nullable=True)
+    sheets_url       = db.Column(db.String(300), nullable=True)
+    sheets_synced_at = db.Column(db.DateTime,    nullable=True)
+
     members = db.relationship('EventMember', backref='event', lazy=True, cascade='all, delete-orphan')
     slots = db.relationship('ShiftSlot', backref='event', lazy=True, cascade='all, delete-orphan')
     collaborators = db.relationship('EventCollaborator', backref='event', lazy=True, cascade='all, delete-orphan')
@@ -75,6 +80,8 @@ class Event(db.Model):
             'custom_link_url': self.custom_link_url,
             'custom_link_label': self.custom_link_label,
             'day_labels': self.get_day_labels(),
+            'sheets_url': self.sheets_url,
+            'sheets_synced_at': self.sheets_synced_at.isoformat() if self.sheets_synced_at else None,
         }
 
 

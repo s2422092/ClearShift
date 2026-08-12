@@ -118,24 +118,21 @@ def create_app():
     if not os.environ.get('VERCEL'):
         with app.app_context():
             db.create_all()
-            # labels_json カラムが未存在なら追加（既存 DB への後付けマイグレーション）
-            try:
-                db.session.execute(db.text(
-                    "ALTER TABLE event_members ADD COLUMN labels_json TEXT"
-                ))
-                db.session.commit()
-            except Exception:
-                db.session.rollback()
-            try:
-                db.session.execute(db.text(
-                    "ALTER TABLE events ADD COLUMN custom_link_url VARCHAR(1000)"
-                ))
-                db.session.execute(db.text(
-                    "ALTER TABLE events ADD COLUMN custom_link_label VARCHAR(100)"
-                ))
-                db.session.commit()
-            except Exception:
-                db.session.rollback()  # 既に存在する場合は無視
+            # 既存 DB への後付けマイグレーション（本番は schema.sql 末尾の ALTER 文で適用する）
+            # 1文ずつ実行する。既に存在するカラムでこけても後続を止めないため。
+            for stmt in (
+                "ALTER TABLE event_members ADD COLUMN labels_json TEXT",
+                "ALTER TABLE events ADD COLUMN custom_link_url VARCHAR(1000)",
+                "ALTER TABLE events ADD COLUMN custom_link_label VARCHAR(100)",
+                "ALTER TABLE events ADD COLUMN sheets_id VARCHAR(100)",
+                "ALTER TABLE events ADD COLUMN sheets_url VARCHAR(300)",
+                "ALTER TABLE events ADD COLUMN sheets_synced_at TIMESTAMP",
+            ):
+                try:
+                    db.session.execute(db.text(stmt))
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()  # 既に存在する場合は無視
 
     return app
 

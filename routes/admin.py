@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, redirect, url_for, request, jsonify, session, Response, abort
+from flask import Blueprint, render_template, redirect, url_for, request, jsonify, session, Response, abort, current_app
 from flask_login import login_required, current_user
 from models import db, Event, EventMember, ShiftSlot, ShiftAssignment, Availability, EventCollaborator, User, JobType, ShiftAbsence
 from datetime import date, datetime, timedelta, time as time_type
@@ -1290,18 +1290,21 @@ def api_delete_absence(event_id):
     return jsonify({'ok': True})
 
 
-# ── Excel エクスポート ────────────────────────────────────────────────────────
+# ── シフト表の書き出し（Excel / Google スプレッドシート） ──────────────────────
 
-@admin_bp.route('/api/events/<int:event_id>/export-excel', methods=['GET'])
-@login_required
-def api_export_excel(event_id):
-    """イベントのシフト表を Excel (.xlsx) ファイルとしてダウンロードさせる。"""
-    _can_access_event(event_id)
-    event = Event.query.get_or_404(event_id)
-    day_labels = event.get_day_labels()
+def _fetch_board_rows(event_id):
+    """
+    シフト表グリッドの描画に必要な行を取得する。
+
+    Returns:
+        (rows, all_members)
+        rows:        slot_id, slot_date, start_time, end_time, role, job_color,
+                     member_id, member_name, member_dept, member_grade, is_leader
+        all_members: (id, name, department, grade, is_leader) を名前順で
+    """
+    from sqlalchemy import text as sa_text
 
     # 単一SQLで全スロット＋割り当てデータを取得
-    from sqlalchemy import text as sa_text
     rows = db.session.execute(sa_text("""
         SELECT
             ss.id              AS slot_id,
@@ -1332,6 +1335,17 @@ def api_export_excel(event_id):
         ORDER BY name
     """), {'eid': event_id}).fetchall()
 
+    return rows, all_members
+
+
+@admin_bp.route('/api/events/<int:event_id>/export-excel', methods=['GET'])
+@login_required
+def api_export_excel(event_id):
+    """イベントのシフト表を Excel (.xlsx) ファイルとしてダウンロードさせる。"""
+    event = _can_access_event(event_id)
+    day_labels = event.get_day_labels()
+    rows, all_members = _fetch_board_rows(event_id)
+
     from utils.excel_export import export_board_style
     xlsx_bytes = export_board_style(event.title, rows, day_labels, all_members=all_members)
 
@@ -1347,3 +1361,49 @@ def api_export_excel(event_id):
             'Content-Disposition': f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{utf8_name}',
         },
     )
+
+
+@admin_bp.route('/api/events/<int:event_id>/sync-sheets', methods=['POST'])
+@login_required
+@limiter.limit("10 per minute")
+def api_sync_sheets(event_id):
+    """
+    イベントのシフト表を Google スプレッドシートへ同期する。
+
+    2回目以降は保存済みの sheets_id を使って同じスプレッドシートを上書き更新するので、
+    共有済みの URL は変わらない。
+    """
+    event = _can_access_event(event_id)
+    rows, all_members = _fetch_board_rows(event_id)
+
+    from utils.google_sheets import sync_event_to_sheets
+    try:
+        result = sync_event_to_sheets(
+            event.title,
+            rows,
+            event.get_day_labels(),
+            all_members=all_members,
+            spreadsheet_id=event.sheets_id,
+            owner_email=getattr(current_user, 'email', None),
+        )
+    except (RuntimeError, ValueError) as e:
+        # 依存パッケージ未導入・環境変数の設定漏れなど、運用者が直せるもの
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        current_app.logger.exception('Google スプレッドシート同期に失敗しました')
+        return jsonify({
+            'error': f'Google スプレッドシートへの同期に失敗しました: {e}'
+        }), 502
+
+    event.sheets_id = result['spreadsheet_id']
+    event.sheets_url = result['url']
+    event.sheets_synced_at = datetime.utcnow()
+    db.session.commit()
+
+    return jsonify({
+        'ok': True,
+        'url': result['url'],
+        'created': result['created'],
+        'sheet_count': result['sheet_count'],
+        'synced_at': event.sheets_synced_at.isoformat(),
+    })

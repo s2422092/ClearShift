@@ -23,7 +23,12 @@ CREATE TABLE IF NOT EXISTS events (
     creator_id      INTEGER      NOT NULL REFERENCES users(id),
     created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
     share_token     VARCHAR(64)  UNIQUE,
-    day_labels_json TEXT                              -- {"YYYY-MM-DD": "日程名", ...}
+    day_labels_json TEXT,                             -- {"YYYY-MM-DD": "日程名", ...}
+    custom_link_url   VARCHAR(1000),                  -- 閲覧者向けカスタムリンクURL
+    custom_link_label VARCHAR(100),                   -- リンクのボタンラベル
+    sheets_id         VARCHAR(100),                   -- Google スプレッドシート同期先のID
+    sheets_url        VARCHAR(300),
+    sheets_synced_at  TIMESTAMP
 );
 
 -- 共同編集者
@@ -160,3 +165,15 @@ CREATE INDEX IF NOT EXISTS idx_availabilities_member_date ON availabilities   (m
 -- 欠席マーク：イベント・日付での絞り込み
 CREATE INDEX IF NOT EXISTS idx_shift_absences_event      ON shift_absences    (event_id);
 CREATE INDEX IF NOT EXISTS idx_shift_absences_event_date ON shift_absences    (event_id, date);
+
+-- =============================================================================
+-- 既存DBへの後付けマイグレーション
+-- 稼働中の DB（Supabase など）には上の CREATE TABLE が適用されないため、
+-- 新しいカラムはここで個別に追加する。何度実行しても安全。
+-- =============================================================================
+ALTER TABLE events        ADD COLUMN IF NOT EXISTS custom_link_url   VARCHAR(1000);
+ALTER TABLE events        ADD COLUMN IF NOT EXISTS custom_link_label VARCHAR(100);
+ALTER TABLE events        ADD COLUMN IF NOT EXISTS sheets_id         VARCHAR(100);
+ALTER TABLE events        ADD COLUMN IF NOT EXISTS sheets_url        VARCHAR(300);
+ALTER TABLE events        ADD COLUMN IF NOT EXISTS sheets_synced_at  TIMESTAMP;
+ALTER TABLE event_members ADD COLUMN IF NOT EXISTS labels_json       TEXT;
